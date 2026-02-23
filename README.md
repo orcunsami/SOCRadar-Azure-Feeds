@@ -17,7 +17,7 @@ Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentin
 |-----------|-------------|
 | `WorkspaceName` | Your Sentinel workspace name (e.g., `my-sentinel-workspace`, NOT the Workspace ID/GUID) |
 | `WorkspaceLocation` | Region of your workspace (e.g., `centralus`, `northeurope`) |
-| `SocradarApiKey` | Your SOCRadar API key |
+| `SOCRadarAPIKey` | Your SOCRadar API key |
 
 ### Optional Parameters
 
