@@ -297,7 +297,7 @@
                                         "method": "GET",
                                         "uri": "@{concat('https://', parameters('StorageAccountName'), '.table.core.windows.net/FeedState(PartitionKey=''', items('For_Each_Collection')?['id'], ''',RowKey=''state'')')}",
                                         "headers": {
-                                            "Accept": "application/json;odata=noreplace",
+                                            "Accept": "application/json;odata=nometadata",
                                             "x-ms-version": "2020-12-06"
                                         },
                                         "authentication": { "type": "ManagedServiceIdentity", "audience": "https://storage.azure.com" },
@@ -313,7 +313,7 @@
                                 "Filter_New_Indicators": {
                                     "type": "Query",
                                     "inputs": {
-                                        "from": "@body('Fetch_Feed')",
+                                        "from": "@json(body('Fetch_Feed'))",
                                         "where": "@and(not(empty(item()?['feed'])), greater(coalesce(item()?['latest_seen_date'], '2099-01-01T00:00:00Z'), outputs('Get_Last_Processed_Date')))"
                                     },
                                     "runAfter": { "Get_Last_Processed_Date": ["Succeeded"] }
@@ -347,8 +347,7 @@
                                                         "threatTypes": ["Malware"],
                                                         "validFrom": "@{coalesce(items('For_Each_New_Indicator')?['latest_seen_date'], utcNow())}",
                                                         "labels": ["SOCRadar", "Feeds", "@{items('For_Each_Collection')?['name']}"],
-                                                        "threatIntelligenceTags": ["SOCRadar", "Feeds"],
-                                                        "externalId": "@{concat('socradar-feed-', items('For_Each_Collection')?['id'], '-', take(coalesce(items('For_Each_New_Indicator')?['feed'], ''), 200))}"
+                                                        "threatIntelligenceTags": ["SOCRadar", "Feeds"]
                                                     }
                                                 },
                                                 "retryPolicy": { "type": "exponential", "count": 3, "interval": "PT5S", "maximumInterval": "PT1M" }
@@ -425,8 +424,7 @@
                                         "uri": "@{concat('https://', parameters('StorageAccountName'), '.table.core.windows.net/FeedState(PartitionKey=''', items('For_Each_Collection')?['id'], ''',RowKey=''state'')')}",
                                         "headers": {
                                             "Content-Type": "application/json",
-                                            "x-ms-version": "2020-12-06",
-                                            "If-Match": "*"
+                                            "x-ms-version": "2020-12-06"
                                         },
                                         "authentication": { "type": "ManagedServiceIdentity", "audience": "https://storage.azure.com" },
                                         "body": {
@@ -434,7 +432,7 @@
                                             "RowKey": "state",
                                             "LastProcessedDate": "@{utcNow()}",
                                             "CollectionName": "@{items('For_Each_Collection')?['name']}",
-                                            "IndicatorsProcessed": "@{length(body('Fetch_Feed'))}",
+                                            "IndicatorsProcessed": "@{length(json(body('Fetch_Feed')))}",
                                             "NewIndicators": "@{length(body('Filter_New_Indicators'))}",
                                             "LastRun": "@{utcNow()}"
                                         },
