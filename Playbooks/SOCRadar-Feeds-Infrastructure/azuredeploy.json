@@ -1,0 +1,256 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+        "title": "SOCRadar Feeds Infrastructure",
+        "description": "Deploys infrastructure components required for SOCRadar Threat Feeds integration: Storage Account, DCE, custom tables, and DCRs. Deploy this BEFORE the Import playbook.",
+        "version": "1.0.0",
+        "author": "SOCRadar",
+        "lastUpdateTime": "2026-02-23T00:00:00.000Z"
+    },
+    "parameters": {
+        "WorkspaceName": {
+            "type": "string",
+            "metadata": {
+                "description": "Microsoft Sentinel Log Analytics Workspace Name"
+            }
+        },
+        "WorkspaceLocation": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]",
+            "metadata": {
+                "description": "Location/region of the Log Analytics workspace"
+            }
+        },
+        "EnableFeedsTable": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable logging indicators to SOCRadar_Feeds_CL custom table"
+            }
+        },
+        "EnableAuditLogging": {
+            "type": "bool",
+            "defaultValue": false,
+            "metadata": {
+                "description": "Enable audit logging to SOCRadar_Feeds_Audit_CL custom table"
+            }
+        }
+    },
+    "variables": {
+        "storageAccountName": "[take(concat('srfeeds', uniqueString(resourceGroup().id)), 24)]",
+        "tableName": "FeedState",
+        "FeedsDceName": "SOCRadar-Feeds-DCE",
+        "FeedsTableName": "SOCRadar_Feeds_CL",
+        "FeedsDcrName": "SOCRadar-Feeds-DCR",
+        "FeedsStreamName": "Custom-SOCRadar_Feeds_CL",
+        "AuditTableName": "SOCRadar_Feeds_Audit_CL",
+        "AuditDcrName": "SOCRadar-Feeds-Audit-DCR",
+        "AuditStreamName": "Custom-SOCRadar_Feeds_Audit_CL",
+        "workspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
+        "enableDce": "[or(parameters('EnableFeedsTable'), parameters('EnableAuditLogging'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2023-05-01",
+            "name": "[variables('storageAccountName')]",
+            "location": "[resourceGroup().location]",
+            "sku": { "name": "Standard_LRS" },
+            "kind": "StorageV2",
+            "properties": {
+                "supportsHttpsTrafficOnly": true,
+                "minimumTlsVersion": "TLS1_2"
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/tableServices",
+            "apiVersion": "2023-05-01",
+            "name": "[concat(variables('storageAccountName'), '/default')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+            "apiVersion": "2023-05-01",
+            "name": "[concat(variables('storageAccountName'), '/default/', variables('tableName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/tableServices', variables('storageAccountName'), 'default')]"
+            ]
+        },
+        {
+            "condition": "[variables('enableDce')]",
+            "type": "Microsoft.Insights/dataCollectionEndpoints",
+            "apiVersion": "2023-03-11",
+            "name": "[variables('FeedsDceName')]",
+            "location": "[parameters('WorkspaceLocation')]",
+            "properties": {
+                "description": "Data Collection Endpoint for SOCRadar Feeds logging",
+                "networkAcls": {
+                    "publicNetworkAccess": "Enabled"
+                }
+            }
+        },
+        {
+            "condition": "[parameters('EnableFeedsTable')]",
+            "type": "Microsoft.OperationalInsights/workspaces/tables",
+            "apiVersion": "2022-10-01",
+            "name": "[concat(parameters('WorkspaceName'), '/', variables('FeedsTableName'))]",
+            "properties": {
+                "schema": {
+                    "name": "[variables('FeedsTableName')]",
+                    "columns": [
+                        { "name": "TimeGenerated", "type": "datetime", "description": "Event timestamp" },
+                        { "name": "CollectionName", "type": "string", "description": "Feed collection name" },
+                        { "name": "CollectionUUID", "type": "string", "description": "Feed collection UUID" },
+                        { "name": "IndicatorValue", "type": "string", "description": "Indicator value (IP, domain, hash, etc.)" },
+                        { "name": "IndicatorType", "type": "string", "description": "Indicator type (ipv4-addr, domain-name, file, url, email-addr)" },
+                        { "name": "LatestSeenDate", "type": "string", "description": "Latest seen date from SOCRadar" },
+                        { "name": "Source", "type": "string", "description": "Source identifier" }
+                    ]
+                },
+                "retentionInDays": 30,
+                "plan": "Analytics"
+            }
+        },
+        {
+            "condition": "[parameters('EnableFeedsTable')]",
+            "type": "Microsoft.Insights/dataCollectionRules",
+            "apiVersion": "2023-03-11",
+            "name": "[variables('FeedsDcrName')]",
+            "location": "[parameters('WorkspaceLocation')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces/tables', parameters('WorkspaceName'), variables('FeedsTableName'))]"
+            ],
+            "kind": "Direct",
+            "properties": {
+                "description": "DCR for SOCRadar Feeds indicator logging",
+                "dataCollectionEndpointId": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName'))]",
+                "streamDeclarations": {
+                    "[variables('FeedsStreamName')]": {
+                        "columns": [
+                            { "name": "TimeGenerated", "type": "datetime" },
+                            { "name": "CollectionName", "type": "string" },
+                            { "name": "CollectionUUID", "type": "string" },
+                            { "name": "IndicatorValue", "type": "string" },
+                            { "name": "IndicatorType", "type": "string" },
+                            { "name": "LatestSeenDate", "type": "string" },
+                            { "name": "Source", "type": "string" }
+                        ]
+                    }
+                },
+                "destinations": {
+                    "logAnalytics": [
+                        {
+                            "workspaceResourceId": "[variables('workspaceResourceId')]",
+                            "name": "workspace"
+                        }
+                    ]
+                },
+                "dataFlows": [
+                    {
+                        "streams": [ "[variables('FeedsStreamName')]" ],
+                        "destinations": [ "workspace" ],
+                        "transformKql": "source",
+                        "outputStream": "[variables('FeedsStreamName')]"
+                    }
+                ]
+            }
+        },
+        {
+            "condition": "[parameters('EnableAuditLogging')]",
+            "type": "Microsoft.OperationalInsights/workspaces/tables",
+            "apiVersion": "2022-10-01",
+            "name": "[concat(parameters('WorkspaceName'), '/', variables('AuditTableName'))]",
+            "properties": {
+                "schema": {
+                    "name": "[variables('AuditTableName')]",
+                    "columns": [
+                        { "name": "TimeGenerated", "type": "datetime", "description": "Event timestamp" },
+                        { "name": "CollectionsProcessed", "type": "int", "description": "Number of collections processed" },
+                        { "name": "IndicatorsCreated", "type": "int", "description": "Indicators successfully uploaded" },
+                        { "name": "IndicatorsSkipped", "type": "int", "description": "Indicators skipped" },
+                        { "name": "DurationMs", "type": "int", "description": "Run duration in milliseconds" },
+                        { "name": "Status", "type": "string", "description": "Run status (Success, Failed)" },
+                        { "name": "ErrorMessage", "type": "string", "description": "Error details if any" }
+                    ]
+                },
+                "retentionInDays": 30,
+                "plan": "Analytics"
+            }
+        },
+        {
+            "condition": "[parameters('EnableAuditLogging')]",
+            "type": "Microsoft.Insights/dataCollectionRules",
+            "apiVersion": "2023-03-11",
+            "name": "[variables('AuditDcrName')]",
+            "location": "[parameters('WorkspaceLocation')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces/tables', parameters('WorkspaceName'), variables('AuditTableName'))]"
+            ],
+            "kind": "Direct",
+            "properties": {
+                "description": "DCR for SOCRadar Feeds audit log ingestion",
+                "dataCollectionEndpointId": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName'))]",
+                "streamDeclarations": {
+                    "[variables('AuditStreamName')]": {
+                        "columns": [
+                            { "name": "TimeGenerated", "type": "datetime" },
+                            { "name": "CollectionsProcessed", "type": "int" },
+                            { "name": "IndicatorsCreated", "type": "int" },
+                            { "name": "IndicatorsSkipped", "type": "int" },
+                            { "name": "DurationMs", "type": "int" },
+                            { "name": "Status", "type": "string" },
+                            { "name": "ErrorMessage", "type": "string" }
+                        ]
+                    }
+                },
+                "destinations": {
+                    "logAnalytics": [
+                        {
+                            "workspaceResourceId": "[variables('workspaceResourceId')]",
+                            "name": "workspace"
+                        }
+                    ]
+                },
+                "dataFlows": [
+                    {
+                        "streams": [ "[variables('AuditStreamName')]" ],
+                        "destinations": [ "workspace" ],
+                        "transformKql": "source",
+                        "outputStream": "[variables('AuditStreamName')]"
+                    }
+                ]
+            }
+        }
+    ],
+    "outputs": {
+        "storageAccountName": {
+            "type": "string",
+            "value": "[variables('storageAccountName')]"
+        },
+        "feedsDceEndpoint": {
+            "type": "string",
+            "value": "[if(variables('enableDce'), reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName')), '2023-03-11').logsIngestion.endpoint, '')]"
+        },
+        "feedsDcrImmutableId": {
+            "type": "string",
+            "value": "[if(parameters('EnableFeedsTable'), reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName')), '2023-03-11').immutableId, '')]"
+        },
+        "auditDcrImmutableId": {
+            "type": "string",
+            "value": "[if(parameters('EnableAuditLogging'), reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName')), '2023-03-11').immutableId, '')]"
+        },
+        "feedsTableName": {
+            "type": "string",
+            "value": "[if(parameters('EnableFeedsTable'), variables('FeedsTableName'), 'N/A')]"
+        },
+        "auditTableName": {
+            "type": "string",
+            "value": "[if(parameters('EnableAuditLogging'), variables('AuditTableName'), 'N/A')]"
+        }
+    }
+}

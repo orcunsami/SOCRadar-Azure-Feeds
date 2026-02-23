@@ -1,0 +1,546 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+        "title": "SOCRadar Feeds Import",
+        "description": "Logic App playbook that imports threat intelligence indicators from SOCRadar feed API into Microsoft Sentinel. Requires pre-deployed infrastructure (workspace, storage, DCR).",
+        "version": "1.0.0",
+        "author": "SOCRadar",
+        "lastUpdateTime": "2026-02-23T00:00:00.000Z"
+    },
+    "parameters": {
+        "WorkspaceName": {
+            "type": "string",
+            "metadata": {
+                "description": "Existing Microsoft Sentinel Log Analytics Workspace Name"
+            }
+        },
+        "WorkspaceLocation": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]",
+            "metadata": {
+                "description": "Location/region of the Log Analytics workspace"
+            }
+        },
+        "SocradarApiKey": {
+            "type": "securestring",
+            "metadata": {
+                "description": "SOCRadar API Key"
+            }
+        },
+        "IncludeRecommended": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Include 7 recommended SOCRadar threat feed collections"
+            }
+        },
+        "CustomCollectionIds": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Comma-separated custom feed collection UUIDs"
+            }
+        },
+        "CustomCollectionNames": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Comma-separated custom collection names (matching IDs order)"
+            }
+        },
+        "CustomCollectionTypes": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Comma-separated indicator types for custom collections (ip, domain, hash, url, email)"
+            }
+        },
+        "StorageAccountName": {
+            "type": "string",
+            "metadata": {
+                "description": "Existing storage account name (deployed via Infrastructure playbook)"
+            }
+        },
+        "PollingIntervalMinutes": {
+            "type": "int",
+            "defaultValue": 60,
+            "minValue": 5,
+            "maxValue": 1440,
+            "metadata": {
+                "description": "How often to poll SOCRadar feeds (5-1440 minutes)"
+            }
+        },
+        "MinConfidence": {
+            "type": "int",
+            "defaultValue": 0,
+            "minValue": 0,
+            "maxValue": 100,
+            "metadata": {
+                "description": "Minimum confidence score to upload indicator (0-100)"
+            }
+        },
+        "MaxCollectionsPerRun": {
+            "type": "int",
+            "defaultValue": 50,
+            "minValue": 1,
+            "maxValue": 500,
+            "metadata": {
+                "description": "Maximum collections to process per run"
+            }
+        },
+        "EnableFeedsTable": {
+            "type": "bool",
+            "defaultValue": false,
+            "metadata": {
+                "description": "Enable logging indicators to SOCRadar_Feeds_CL custom table"
+            }
+        },
+        "EnableAuditLogging": {
+            "type": "bool",
+            "defaultValue": false,
+            "metadata": {
+                "description": "Enable audit logging to SOCRadar_Feeds_Audit_CL custom table"
+            }
+        },
+        "FeedsDcrEndpoint": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "DCE endpoint URL for Feeds table (from Infrastructure playbook output)"
+            }
+        },
+        "FeedsDcrImmutableId": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "DCR immutable ID for Feeds table (from Infrastructure playbook output)"
+            }
+        },
+        "AuditDcrEndpoint": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "DCE endpoint URL for Audit table (from Infrastructure playbook output)"
+            }
+        },
+        "AuditDcrImmutableId": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "DCR immutable ID for Audit table (from Infrastructure playbook output)"
+            }
+        },
+        "_triggerStartTime": {
+            "type": "string",
+            "defaultValue": "[dateTimeAdd(utcNow(), 'PT3M')]",
+            "metadata": {
+                "description": "Internal: Logic App starts 3 min after deploy for role propagation"
+            }
+        }
+    },
+    "variables": {
+        "playbookName": "SOCRadar-Feeds-Import",
+        "SentinelContributorRoleId": "ab8e14d6-4a74-4a29-9ba8-549422addade",
+        "StorageTableDataContributorRoleId": "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3",
+        "workspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2019-05-01",
+            "name": "[variables('playbookName')]",
+            "location": "[resourceGroup().location]",
+            "identity": { "type": "SystemAssigned" },
+            "properties": {
+                "state": "Disabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "SocradarApiKey": { "type": "SecureString" },
+                        "IncludeRecommended": { "type": "Bool" },
+                        "CustomCollectionIds": { "type": "String" },
+                        "CustomCollectionNames": { "type": "String" },
+                        "CustomCollectionTypes": { "type": "String" },
+                        "WorkspaceName": { "type": "String" },
+                        "StorageAccountName": { "type": "String" },
+                        "PollingIntervalMinutes": { "type": "Int" },
+                        "MinConfidence": { "type": "Int" },
+                        "MaxCollectionsPerRun": { "type": "Int" },
+                        "EnableFeedsTable": { "type": "Bool", "defaultValue": false },
+                        "EnableAuditLogging": { "type": "Bool", "defaultValue": false },
+                        "FeedsDcrEndpoint": { "type": "String", "defaultValue": "" },
+                        "FeedsDcrImmutableId": { "type": "String", "defaultValue": "" },
+                        "FeedsStreamName": { "type": "String", "defaultValue": "Custom-SOCRadar_Feeds_CL" },
+                        "AuditDcrEndpoint": { "type": "String", "defaultValue": "" },
+                        "AuditDcrImmutableId": { "type": "String", "defaultValue": "" },
+                        "AuditStreamName": { "type": "String", "defaultValue": "Custom-SOCRadar_Feeds_Audit_CL" },
+                        "SubscriptionId": { "type": "String" },
+                        "ResourceGroupName": { "type": "String" }
+                    },
+                    "triggers": {
+                        "Recurrence": {
+                            "type": "Recurrence",
+                            "recurrence": {
+                                "frequency": "Minute",
+                                "interval": "[parameters('PollingIntervalMinutes')]",
+                                "startTime": "[parameters('_triggerStartTime')]"
+                            },
+                            "operationOptions": "SingleInstance"
+                        }
+                    },
+                    "actions": {
+                        "Record_Start_Time": {
+                            "type": "Compose",
+                            "inputs": "@ticks(utcNow())",
+                            "runAfter": {}
+                        },
+                        "Build_Recommended_Collections": {
+                            "type": "Compose",
+                            "inputs": [
+                                {"id": "4d7a69ce6e7c49ff8c916da5d7343916", "name": "SOCRadar-APT-Recommended-Block-IP", "type": "ipv4-addr"},
+                                {"id": "0cb06558728b4dc296019c93b78360d1", "name": "SOCRadar-APT-Recommended-Block-Hash", "type": "file"},
+                                {"id": "9079dcc2f96e4835bb807026d4cdcc86", "name": "SOCRadar-APT-Recommended-Block-Domain", "type": "domain-name"},
+                                {"id": "8742cab86cc4414092217f87298e94a1", "name": "SOCRadar-Recommended-Block-Hash", "type": "file"},
+                                {"id": "e89ab3b58e174b8c82767088d8e66cae", "name": "SOCRadar-Attackers-Recommended-Block-IP", "type": "ipv4-addr"},
+                                {"id": "606a83358bbe466d8c3885e37fa595b7", "name": "SOCRadar-Attackers-Recommended-Block-Domain", "type": "domain-name"},
+                                {"id": "03cc11380b5d4a77a0d0cc2a7c568230", "name": "SOCRadar-Recommended-Phishing-Global", "type": "url"}
+                            ],
+                            "runAfter": { "Record_Start_Time": ["Succeeded"] }
+                        },
+                        "Check_Custom_Collections": {
+                            "type": "If",
+                            "expression": {
+                                "and": [
+                                    { "not": { "equals": ["@parameters('CustomCollectionIds')", ""] } }
+                                ]
+                            },
+                            "actions": {
+                                "Build_Custom_Collections_Select": {
+                                    "type": "Select",
+                                    "inputs": {
+                                        "from": "@range(0, length(split(parameters('CustomCollectionIds'), ',')))",
+                                        "select": {
+                                            "id": "@trim(split(parameters('CustomCollectionIds'), ',')[item()])",
+                                            "name": "@if(and(not(empty(parameters('CustomCollectionNames'))), less(item(), length(split(parameters('CustomCollectionNames'), ',')))), trim(split(parameters('CustomCollectionNames'), ',')[item()]), concat('Custom-Feed-', add(item(), 1)))",
+                                            "type": "@if(and(not(empty(parameters('CustomCollectionTypes'))), less(item(), length(split(parameters('CustomCollectionTypes'), ',')))), trim(split(parameters('CustomCollectionTypes'), ',')[item()]), 'unknown')"
+                                        }
+                                    },
+                                    "runAfter": {}
+                                }
+                            },
+                            "else": {
+                                "actions": {
+                                    "Build_Empty_Custom": {
+                                        "type": "Compose",
+                                        "inputs": [],
+                                        "runAfter": {}
+                                    }
+                                }
+                            },
+                            "runAfter": { "Build_Recommended_Collections": ["Succeeded"] }
+                        },
+                        "Get_Custom_Result": {
+                            "type": "Compose",
+                            "inputs": "@if(not(equals(parameters('CustomCollectionIds'), '')), body('Build_Custom_Collections_Select'), outputs('Build_Empty_Custom'))",
+                            "runAfter": { "Check_Custom_Collections": ["Succeeded"] }
+                        },
+                        "Build_All_Collections": {
+                            "type": "Compose",
+                            "inputs": "@if(parameters('IncludeRecommended'), if(equals(length(outputs('Get_Custom_Result')), 0), outputs('Build_Recommended_Collections'), union(outputs('Build_Recommended_Collections'), outputs('Get_Custom_Result'))), if(equals(length(outputs('Get_Custom_Result')), 0), json('[]'), outputs('Get_Custom_Result')))",
+                            "runAfter": { "Get_Custom_Result": ["Succeeded"] }
+                        },
+                        "Initialize_Total_Created": {
+                            "type": "InitializeVariable",
+                            "inputs": { "variables": [{ "name": "total_created", "type": "integer", "value": 0 }] },
+                            "runAfter": { "Build_All_Collections": ["Succeeded"] }
+                        },
+                        "Initialize_Total_Skipped": {
+                            "type": "InitializeVariable",
+                            "inputs": { "variables": [{ "name": "total_skipped", "type": "integer", "value": 0 }] },
+                            "runAfter": { "Initialize_Total_Created": ["Succeeded"] }
+                        },
+                        "Take_Collections_For_This_Run": {
+                            "type": "Compose",
+                            "inputs": "@take(outputs('Build_All_Collections'), parameters('MaxCollectionsPerRun'))",
+                            "runAfter": { "Initialize_Total_Skipped": ["Succeeded"] }
+                        },
+                        "For_Each_Collection": {
+                            "type": "Foreach",
+                            "foreach": "@outputs('Take_Collections_For_This_Run')",
+                            "runtimeConfiguration": { "concurrency": { "repetitions": 1 } },
+                            "actions": {
+                                "Delay_Before_API_Call": {
+                                    "type": "Wait",
+                                    "inputs": {
+                                        "interval": {
+                                            "count": 5,
+                                            "unit": "Second"
+                                        }
+                                    },
+                                    "runAfter": {}
+                                },
+                                "Fetch_Feed": {
+                                    "type": "Http",
+                                    "inputs": {
+                                        "method": "GET",
+                                        "uri": "@{concat('https://platform.socradar.com/api/threat/intelligence/feed_list/', items('For_Each_Collection')?['id'], '.json?key=', parameters('SocradarApiKey'), '&v=2')}",
+                                        "retryPolicy": { "type": "exponential", "count": 3, "interval": "PT10S", "maximumInterval": "PT2M" }
+                                    },
+                                    "runtimeConfiguration": { "secureData": { "properties": ["inputs"] } },
+                                    "runAfter": { "Delay_Before_API_Call": ["Succeeded"] }
+                                },
+                                "Read_Collection_Checkpoint": {
+                                    "type": "Http",
+                                    "inputs": {
+                                        "method": "GET",
+                                        "uri": "@{concat('https://', parameters('StorageAccountName'), '.table.core.windows.net/FeedState(PartitionKey=''', items('For_Each_Collection')?['id'], ''',RowKey=''state'')')}",
+                                        "headers": {
+                                            "Accept": "application/json;odata=noreplace",
+                                            "x-ms-version": "2020-12-06"
+                                        },
+                                        "authentication": { "type": "ManagedServiceIdentity", "audience": "https://storage.azure.com" },
+                                        "retryPolicy": { "type": "exponential", "count": 3, "interval": "PT5S", "maximumInterval": "PT1M" }
+                                    },
+                                    "runAfter": { "Fetch_Feed": ["Succeeded"] }
+                                },
+                                "Get_Last_Processed_Date": {
+                                    "type": "Compose",
+                                    "inputs": "@if(equals(outputs('Read_Collection_Checkpoint')['statusCode'], 200), coalesce(body('Read_Collection_Checkpoint')?['LastProcessedDate'], '1970-01-01T00:00:00Z'), '1970-01-01T00:00:00Z')",
+                                    "runAfter": { "Read_Collection_Checkpoint": ["Succeeded", "Failed"] }
+                                },
+                                "Filter_New_Indicators": {
+                                    "type": "Query",
+                                    "inputs": {
+                                        "from": "@body('Fetch_Feed')",
+                                        "where": "@and(not(empty(item()?['feed'])), greater(coalesce(item()?['latest_seen_date'], '2099-01-01T00:00:00Z'), outputs('Get_Last_Processed_Date')))"
+                                    },
+                                    "runAfter": { "Get_Last_Processed_Date": ["Succeeded"] }
+                                },
+                                "For_Each_New_Indicator": {
+                                    "type": "Foreach",
+                                    "foreach": "@body('Filter_New_Indicators')",
+                                    "runtimeConfiguration": { "concurrency": { "repetitions": 10 } },
+                                    "actions": {
+                                        "Build_Pattern": {
+                                            "type": "Compose",
+                                            "inputs": "@if(equals(items('For_Each_Collection')?['type'], 'ipv4-addr'), concat('[ipv4-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(items('For_Each_Collection')?['type'], 'domain-name'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(items('For_Each_Collection')?['type'], 'file'), concat('[file:hashes.MD5 = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(items('For_Each_Collection')?['type'], 'url'), concat('[url:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(items('For_Each_Collection')?['type'], 'email-addr'), concat('[email-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'))))))",
+                                            "runAfter": {}
+                                        },
+                                        "Upload_To_Sentinel_TI": {
+                                            "type": "Http",
+                                            "inputs": {
+                                                "method": "POST",
+                                                "uri": "https://management.azure.com/subscriptions/@{parameters('SubscriptionId')}/resourceGroups/@{parameters('ResourceGroupName')}/providers/Microsoft.OperationalInsights/workspaces/@{parameters('WorkspaceName')}/providers/Microsoft.SecurityInsights/threatIntelligence/main/createIndicator?api-version=2024-03-01",
+                                                "headers": { "Content-Type": "application/json" },
+                                                "authentication": { "type": "ManagedServiceIdentity", "audience": "https://management.azure.com" },
+                                                "body": {
+                                                    "kind": "indicator",
+                                                    "properties": {
+                                                        "source": "SOCRadar Threat Feeds",
+                                                        "displayName": "@{concat(items('For_Each_Collection')?['type'], ' - ', take(coalesce(items('For_Each_New_Indicator')?['feed'], ''), 100))}",
+                                                        "description": "@{concat('SOCRadar feed: ', items('For_Each_Collection')?['name'])}",
+                                                        "pattern": "@{outputs('Build_Pattern')}",
+                                                        "patternType": "@{items('For_Each_Collection')?['type']}",
+                                                        "confidence": 80,
+                                                        "threatTypes": ["Malware"],
+                                                        "validFrom": "@{coalesce(items('For_Each_New_Indicator')?['latest_seen_date'], utcNow())}",
+                                                        "labels": ["SOCRadar", "Feeds", "@{items('For_Each_Collection')?['name']}"],
+                                                        "threatIntelligenceTags": ["SOCRadar", "Feeds"],
+                                                        "externalId": "@{concat('socradar-feed-', items('For_Each_Collection')?['id'], '-', take(coalesce(items('For_Each_New_Indicator')?['feed'], ''), 200))}"
+                                                    }
+                                                },
+                                                "retryPolicy": { "type": "exponential", "count": 3, "interval": "PT5S", "maximumInterval": "PT1M" }
+                                            },
+                                            "runAfter": { "Build_Pattern": ["Succeeded"] }
+                                        },
+                                        "Check_Upload_Success": {
+                                            "type": "If",
+                                            "expression": {
+                                                "or": [
+                                                    { "equals": ["@outputs('Upload_To_Sentinel_TI')['statusCode']", 200] },
+                                                    { "equals": ["@outputs('Upload_To_Sentinel_TI')['statusCode']", 201] }
+                                                ]
+                                            },
+                                            "actions": {
+                                                "Increment_Created": {
+                                                    "type": "IncrementVariable",
+                                                    "inputs": { "name": "total_created", "value": 1 },
+                                                    "runAfter": {}
+                                                }
+                                            },
+                                            "else": {
+                                                "actions": {
+                                                    "Increment_Skipped": {
+                                                        "type": "IncrementVariable",
+                                                        "inputs": { "name": "total_skipped", "value": 1 },
+                                                        "runAfter": {}
+                                                    }
+                                                }
+                                            },
+                                            "runAfter": { "Upload_To_Sentinel_TI": ["Succeeded", "Failed"] }
+                                        },
+                                        "Check_Feeds_Table_Enabled": {
+                                            "type": "If",
+                                            "expression": {
+                                                "and": [
+                                                    { "equals": ["@parameters('EnableFeedsTable')", true] }
+                                                ]
+                                            },
+                                            "actions": {
+                                                "Log_To_Feeds_Table": {
+                                                    "type": "Http",
+                                                    "inputs": {
+                                                        "method": "POST",
+                                                        "uri": "@{concat(parameters('FeedsDcrEndpoint'), '/dataCollectionRules/', parameters('FeedsDcrImmutableId'), '/streams/', parameters('FeedsStreamName'), '?api-version=2023-01-01')}",
+                                                        "headers": { "Content-Type": "application/json" },
+                                                        "authentication": { "type": "ManagedServiceIdentity", "audience": "https://monitor.azure.com" },
+                                                        "body": [
+                                                            {
+                                                                "TimeGenerated": "@{utcNow()}",
+                                                                "CollectionName": "@{items('For_Each_Collection')?['name']}",
+                                                                "CollectionUUID": "@{items('For_Each_Collection')?['id']}",
+                                                                "IndicatorValue": "@{take(coalesce(items('For_Each_New_Indicator')?['feed'], ''), 500)}",
+                                                                "IndicatorType": "@{items('For_Each_Collection')?['type']}",
+                                                                "LatestSeenDate": "@{coalesce(items('For_Each_New_Indicator')?['latest_seen_date'], '')}",
+                                                                "Source": "SOCRadar Threat Feeds"
+                                                            }
+                                                        ],
+                                                        "retryPolicy": { "type": "exponential", "count": 2, "interval": "PT5S", "maximumInterval": "PT30S" }
+                                                    },
+                                                    "runAfter": {}
+                                                }
+                                            },
+                                            "else": { "actions": {} },
+                                            "runAfter": { "Check_Upload_Success": ["Succeeded"] }
+                                        }
+                                    },
+                                    "runAfter": { "Filter_New_Indicators": ["Succeeded"] }
+                                },
+                                "Save_Collection_Checkpoint": {
+                                    "type": "Http",
+                                    "inputs": {
+                                        "method": "PUT",
+                                        "uri": "@{concat('https://', parameters('StorageAccountName'), '.table.core.windows.net/FeedState(PartitionKey=''', items('For_Each_Collection')?['id'], ''',RowKey=''state'')')}",
+                                        "headers": {
+                                            "Content-Type": "application/json",
+                                            "x-ms-version": "2020-12-06",
+                                            "If-Match": "*"
+                                        },
+                                        "authentication": { "type": "ManagedServiceIdentity", "audience": "https://storage.azure.com" },
+                                        "body": {
+                                            "PartitionKey": "@{items('For_Each_Collection')?['id']}",
+                                            "RowKey": "state",
+                                            "LastProcessedDate": "@{utcNow()}",
+                                            "CollectionName": "@{items('For_Each_Collection')?['name']}",
+                                            "IndicatorsProcessed": "@{length(body('Fetch_Feed'))}",
+                                            "NewIndicators": "@{length(body('Filter_New_Indicators'))}",
+                                            "LastRun": "@{utcNow()}"
+                                        },
+                                        "retryPolicy": { "type": "exponential", "count": 3, "interval": "PT5S", "maximumInterval": "PT1M" }
+                                    },
+                                    "runAfter": { "For_Each_New_Indicator": ["Succeeded", "Failed"] }
+                                }
+                            },
+                            "runAfter": { "Take_Collections_For_This_Run": ["Succeeded"] }
+                        },
+                        "Check_Audit_Enabled": {
+                            "type": "If",
+                            "expression": {
+                                "and": [
+                                    { "equals": ["@parameters('EnableAuditLogging')", true] }
+                                ]
+                            },
+                            "actions": {
+                                "Log_Audit": {
+                                    "type": "Http",
+                                    "inputs": {
+                                        "method": "POST",
+                                        "uri": "@{concat(parameters('AuditDcrEndpoint'), '/dataCollectionRules/', parameters('AuditDcrImmutableId'), '/streams/', parameters('AuditStreamName'), '?api-version=2023-01-01')}",
+                                        "headers": { "Content-Type": "application/json" },
+                                        "authentication": { "type": "ManagedServiceIdentity", "audience": "https://monitor.azure.com" },
+                                        "body": [
+                                            {
+                                                "TimeGenerated": "@{utcNow()}",
+                                                "CollectionsProcessed": "@{length(outputs('Take_Collections_For_This_Run'))}",
+                                                "IndicatorsCreated": "@{variables('total_created')}",
+                                                "IndicatorsSkipped": "@{variables('total_skipped')}",
+                                                "DurationMs": "@{div(sub(ticks(utcNow()), outputs('Record_Start_Time')), 10000)}",
+                                                "Status": "@{if(equals(actions('For_Each_Collection')['status'], 'Failed'), 'Failed', 'Success')}",
+                                                "ErrorMessage": "@{if(equals(actions('For_Each_Collection')['status'], 'Failed'), coalesce(actions('For_Each_Collection')?['error']?['message'], 'Collection processing failed'), '')}"
+                                            }
+                                        ],
+                                        "retryPolicy": { "type": "exponential", "count": 3, "interval": "PT5S", "maximumInterval": "PT1M" }
+                                    },
+                                    "runAfter": {}
+                                }
+                            },
+                            "else": { "actions": {} },
+                            "runAfter": { "For_Each_Collection": ["Succeeded", "Failed"] }
+                        }
+                    }
+                },
+                "parameters": {
+                    "SocradarApiKey": { "value": "[parameters('SocradarApiKey')]" },
+                    "IncludeRecommended": { "value": "[parameters('IncludeRecommended')]" },
+                    "CustomCollectionIds": { "value": "[parameters('CustomCollectionIds')]" },
+                    "CustomCollectionNames": { "value": "[parameters('CustomCollectionNames')]" },
+                    "CustomCollectionTypes": { "value": "[parameters('CustomCollectionTypes')]" },
+                    "WorkspaceName": { "value": "[parameters('WorkspaceName')]" },
+                    "StorageAccountName": { "value": "[parameters('StorageAccountName')]" },
+                    "PollingIntervalMinutes": { "value": "[parameters('PollingIntervalMinutes')]" },
+                    "MinConfidence": { "value": "[parameters('MinConfidence')]" },
+                    "MaxCollectionsPerRun": { "value": "[parameters('MaxCollectionsPerRun')]" },
+                    "EnableFeedsTable": { "value": "[parameters('EnableFeedsTable')]" },
+                    "EnableAuditLogging": { "value": "[parameters('EnableAuditLogging')]" },
+                    "FeedsDcrEndpoint": { "value": "[parameters('FeedsDcrEndpoint')]" },
+                    "FeedsDcrImmutableId": { "value": "[parameters('FeedsDcrImmutableId')]" },
+                    "FeedsStreamName": { "value": "Custom-SOCRadar_Feeds_CL" },
+                    "AuditDcrEndpoint": { "value": "[parameters('AuditDcrEndpoint')]" },
+                    "AuditDcrImmutableId": { "value": "[parameters('AuditDcrImmutableId')]" },
+                    "AuditStreamName": { "value": "Custom-SOCRadar_Feeds_Audit_CL" },
+                    "SubscriptionId": { "value": "[subscription().subscriptionId]" },
+                    "ResourceGroupName": { "value": "[resourceGroup().name]" }
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceGroup().id, variables('playbookName'), variables('SentinelContributorRoleId'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Logic/workflows', variables('playbookName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('SentinelContributorRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.Logic/workflows', variables('playbookName')), '2019-05-01', 'Full').identity.principalId]",
+                "principalType": "ServicePrincipal"
+            }
+        },
+        {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('StorageAccountName')), variables('playbookName'), variables('StorageTableDataContributorRoleId'))]",
+            "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('StorageAccountName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Logic/workflows', variables('playbookName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('StorageTableDataContributorRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.Logic/workflows', variables('playbookName')), '2019-05-01', 'Full').identity.principalId]",
+                "principalType": "ServicePrincipal"
+            }
+        }
+    ],
+    "outputs": {
+        "logicAppName": {
+            "type": "string",
+            "value": "[variables('playbookName')]"
+        },
+        "pollingInterval": {
+            "type": "string",
+            "value": "[concat(string(parameters('PollingIntervalMinutes')), ' minutes')]"
+        }
+    }
+}
