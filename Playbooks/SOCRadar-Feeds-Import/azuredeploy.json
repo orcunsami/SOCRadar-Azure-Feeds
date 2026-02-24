@@ -53,7 +53,7 @@
             "type": "string",
             "defaultValue": "",
             "metadata": {
-                "description": "Comma-separated STIX indicator types for custom collections (ipv4-addr, domain-name, file, url, email-addr)"
+                "description": "Comma-separated indicator types for custom collections (ip, domain, hash, url, email)"
             }
         },
         "StorageAccountName": {
@@ -306,7 +306,7 @@
                                     "actions": {
                                         "Build_Pattern": {
                                             "type": "Compose",
-                                            "inputs": "@if(equals(items('For_Each_Collection')?['type'], 'ipv4-addr'), concat('[ipv4-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(items('For_Each_Collection')?['type'], 'domain-name'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(items('For_Each_Collection')?['type'], 'file'), concat('[file:hashes.MD5 = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(items('For_Each_Collection')?['type'], 'url'), concat('[url:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(items('For_Each_Collection')?['type'], 'email-addr'), concat('[email-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'))))))",
+                                            "inputs": "@if(or(equals(items('For_Each_Collection')?['type'], 'ipv4-addr'), equals(items('For_Each_Collection')?['type'], 'ip')), concat('[ipv4-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(or(equals(items('For_Each_Collection')?['type'], 'domain-name'), equals(items('For_Each_Collection')?['type'], 'domain'), equals(items('For_Each_Collection')?['type'], 'hostname')), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(or(equals(items('For_Each_Collection')?['type'], 'file'), equals(items('For_Each_Collection')?['type'], 'hash')), concat('[file:hashes.MD5 = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(items('For_Each_Collection')?['type'], 'url'), concat('[url:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(or(equals(items('For_Each_Collection')?['type'], 'email-addr'), equals(items('For_Each_Collection')?['type'], 'email')), concat('[email-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'))))))",
                                             "runAfter": {}
                                         },
                                         "Upload_To_Sentinel_TI": {
