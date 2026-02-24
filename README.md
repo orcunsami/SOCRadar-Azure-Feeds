@@ -26,7 +26,7 @@ Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentin
 | `IncludeRecommended` | true | Include 7 recommended SOCRadar threat feed collections |
 | `CustomCollectionIds` | "" | Comma-separated custom feed collection UUIDs |
 | `CustomCollectionNames` | "" | Comma-separated custom collection names (matching IDs order) |
-| `CustomCollectionTypes` | "" | Comma-separated indicator types: ip, domain, hash, url, email |
+| `CustomCollectionTypes` | "" | Comma-separated STIX indicator types: ipv4-addr, domain-name, file, url, email-addr |
 | `PollingIntervalMinutes` | 60 | How often to poll feeds (5-1440 minutes) |
 | `EnableFeedsTable` | true | Store indicators in SOCRadar_Feeds_CL custom table |
 | `EnableAuditLogging` | true | Log operations to SOCRadar_Feeds_Audit_CL |
