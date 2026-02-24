@@ -28,18 +28,18 @@ Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentin
 | `CustomCollectionNames` | "" | Comma-separated custom collection names (matching IDs order) |
 | `CustomCollectionTypes` | "" | Comma-separated indicator types: ip, domain, hash, url, email |
 | `PollingIntervalMinutes` | 60 | How often to poll feeds (5-1440 minutes) |
-| `MinConfidence` | 0 | Minimum confidence score (0-100) |
-| `MaxCollectionsPerRun` | 50 | Max collections per polling cycle |
-| `EnableFeedsTable` | false | Store indicators in SOCRadar_Feeds_CL custom table |
-| `EnableAuditLogging` | false | Log operations to SOCRadar_Feeds_Audit_CL |
+| `EnableFeedsTable` | true | Store indicators in SOCRadar_Feeds_CL custom table |
+| `EnableAuditLogging` | true | Log operations to SOCRadar_Feeds_Audit_CL |
+| `EnableWorkbook` | true | Deploy SOCRadar Threat Feeds Analytics Dashboard |
 
 ## What Gets Deployed
 
 - **SOCRadar-Feeds-Import** - Logic App that polls SOCRadar feeds and imports indicators as TI
 - **Storage Account** - Checkpoint state for deduplication
 - **Sentinel TI Indicators** - Imported as TiIndicators in your workspace
-- **Optional: SOCRadar_Feeds_CL** - Custom table for indicators (if EnableFeedsTable=true)
-- **Optional: SOCRadar_Feeds_Audit_CL** - Audit log table (if EnableAuditLogging=true)
+- **SOCRadar_Feeds_CL** - Custom table for indicator analytics (if EnableFeedsTable=true)
+- **SOCRadar_Feeds_Audit_CL** - Audit log table (if EnableAuditLogging=true)
+- **SOCRadar Threat Feeds Dashboard** - Workbook with indicator charts and audit monitoring (if EnableWorkbook=true)
 
 ## Key Features
 
@@ -47,23 +47,23 @@ Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentin
 - Custom feed collections with flexible indicator types
 - STIX pattern generation for Sentinel TI ingestion
 - Checkpoint-based deduplication to prevent duplicates
-- Configurable confidence filtering
 - Collection rotation for large deployments
 - Optional audit logging to Log Analytics
+- Analytics dashboard with indicator and audit visualizations
 
 ## Post-Deployment
 
-Logic App starts 3 minutes after deployment to allow Azure role propagation.
+Logic Apps are configured to start **3 minutes after deployment** to allow Azure role propagation.
 
-No manual action required.
+No manual action required - they will start automatically.
 
 ## About SOCRadar
 
-SOCRadar is an Extended Threat Intelligence (XTI) platform providing actionable threat intelligence, digital risk protection, and external attack surface management.
+SOCRadar is an Extended Threat Intelligence (XTI) platform.
 
 Learn more at [socradar.io](https://socradar.io)
 
 ## Support
 
-- Documentation: [docs.socradar.io](https://docs.socradar.io)
-- Support: support@socradar.io
+- **Documentation:** [docs.socradar.io](https://docs.socradar.io)
+- **Support:** support@socradar.io

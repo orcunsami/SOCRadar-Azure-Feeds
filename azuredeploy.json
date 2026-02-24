@@ -6,7 +6,7 @@
         "description": "Imports threat intelligence indicators from SOCRadar feed API into Microsoft Sentinel. Uses Logic App with Storage Table checkpoint, multi-collection support, and optional custom table logging.",
         "version": "1.0.0",
         "author": "SOCRadar",
-        "lastUpdateTime": "2026-02-23T00:00:00.000Z"
+        "lastUpdateTime": "2026-02-24T00:00:00.000Z"
     },
     "parameters": {
         "WorkspaceName": {
@@ -65,36 +65,25 @@
                 "description": "How often to poll SOCRadar feeds (5-1440 minutes)"
             }
         },
-        "MinConfidence": {
-            "type": "int",
-            "defaultValue": 0,
-            "minValue": 0,
-            "maxValue": 100,
-            "metadata": {
-                "description": "Minimum confidence score to upload indicator (0-100)"
-            }
-        },
-        "MaxCollectionsPerRun": {
-            "type": "int",
-            "defaultValue": 50,
-            "minValue": 1,
-            "maxValue": 500,
-            "metadata": {
-                "description": "Maximum collections to process per run"
-            }
-        },
         "EnableFeedsTable": {
             "type": "bool",
-            "defaultValue": false,
+            "defaultValue": true,
             "metadata": {
                 "description": "Enable logging indicators to SOCRadar_Feeds_CL custom table"
             }
         },
         "EnableAuditLogging": {
             "type": "bool",
-            "defaultValue": false,
+            "defaultValue": true,
             "metadata": {
                 "description": "Enable audit logging to SOCRadar_Feeds_Audit_CL custom table"
+            }
+        },
+        "EnableWorkbook": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Deploy SOCRadar Threat Feeds Analytics Dashboard workbook"
             }
         },
         "_triggerStartTime": {
@@ -120,7 +109,8 @@
         "AuditDcrName": "SOCRadar-Feeds-Audit-DCR",
         "AuditStreamName": "Custom-SOCRadar_Feeds_Audit_CL",
         "workspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
-        "enableDce": "[or(parameters('EnableFeedsTable'), parameters('EnableAuditLogging'))]"
+        "enableDce": "[or(parameters('EnableFeedsTable'), parameters('EnableAuditLogging'))]",
+        "WorkbookName": "SOCRadar-Feeds-Dashboard"
     },
     "resources": [
         {
@@ -355,7 +345,7 @@
                 "[resourceId('Microsoft.Storage/storageAccounts/tableServices/tables', variables('storageAccountName'), 'default', variables('tableName'))]"
             ],
             "properties": {
-                "state": "Disabled",
+                "state": "Enabled",
                 "definition": {
                     "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
                     "contentVersion": "1.0.0.0",
@@ -368,10 +358,9 @@
                         "WorkspaceName": { "type": "String" },
                         "StorageAccountName": { "type": "String" },
                         "PollingIntervalMinutes": { "type": "Int" },
-                        "MinConfidence": { "type": "Int" },
-                        "MaxCollectionsPerRun": { "type": "Int" },
-                        "EnableFeedsTable": { "type": "Bool", "defaultValue": false },
-                        "EnableAuditLogging": { "type": "Bool", "defaultValue": false },
+                        "MaxCollectionsPerRun": { "type": "Int", "defaultValue": 50 },
+                        "EnableFeedsTable": { "type": "Bool", "defaultValue": true },
+                        "EnableAuditLogging": { "type": "Bool", "defaultValue": true },
                         "FeedsDcrEndpoint": { "type": "String", "defaultValue": "" },
                         "FeedsDcrImmutableId": { "type": "String", "defaultValue": "" },
                         "FeedsStreamName": { "type": "String", "defaultValue": "Custom-SOCRadar_Feeds_CL" },
@@ -690,8 +679,6 @@
                     "WorkspaceName": { "value": "[parameters('WorkspaceName')]" },
                     "StorageAccountName": { "value": "[variables('storageAccountName')]" },
                     "PollingIntervalMinutes": { "value": "[parameters('PollingIntervalMinutes')]" },
-                    "MinConfidence": { "value": "[parameters('MinConfidence')]" },
-                    "MaxCollectionsPerRun": { "value": "[parameters('MaxCollectionsPerRun')]" },
                     "EnableFeedsTable": { "value": "[parameters('EnableFeedsTable')]" },
                     "EnableAuditLogging": { "value": "[parameters('EnableAuditLogging')]" },
                     "FeedsDcrEndpoint": { "value": "[if(parameters('EnableFeedsTable'), reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName')), '2023-03-11').logsIngestion.endpoint, '')]" },
@@ -748,6 +735,24 @@
                 "principalId": "[reference(resourceId('Microsoft.Logic/workflows', variables('playbookName')), '2019-05-01', 'Full').identity.principalId]",
                 "principalType": "ServicePrincipal"
             }
+        },
+        {
+            "condition": "[and(parameters('EnableWorkbook'), parameters('EnableFeedsTable'))]",
+            "type": "Microsoft.Insights/workbooks",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceGroup().id, 'SOCRadar-Feeds-Workbook')]",
+            "location": "[parameters('WorkspaceLocation')]",
+            "kind": "shared",
+            "dependsOn": [
+                "[variables('workspaceResourceId')]"
+            ],
+            "properties": {
+                "displayName": "SOCRadar Threat Feeds Dashboard",
+                "serializedData": "{\"version\":\"Notebook/1.0\",\"items\":[{\"type\":1,\"content\":{\"json\":\"## SOCRadar Threat Feeds Dashboard\\nThreat intelligence indicator analytics from SOCRadar feeds.\"},\"name\":\"header\"},{\"type\":1,\"content\":{\"json\":\"---\\n### Overview\"},\"name\":\"overview-header\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| count\\n| project Count\",\"size\":4,\"title\":\"Total Indicators\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"tiles\",\"tileSettings\":{\"titleContent\":{\"columnMatch\":\"Count\",\"formatter\":12,\"formatOptions\":{\"palette\":\"auto\"}},\"showBorder\":false}},\"customWidth\":\"25\",\"name\":\"total-indicators\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=dcount(CollectionName)\\n| project Count\",\"size\":4,\"title\":\"Active Collections\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"tiles\",\"tileSettings\":{\"titleContent\":{\"columnMatch\":\"Count\",\"formatter\":12,\"formatOptions\":{\"palette\":\"auto\"}},\"showBorder\":false}},\"customWidth\":\"25\",\"name\":\"active-collections\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=dcount(IndicatorType)\\n| project Count\",\"size\":4,\"title\":\"Indicator Types\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"tiles\",\"tileSettings\":{\"titleContent\":{\"columnMatch\":\"Count\",\"formatter\":12,\"formatOptions\":{\"palette\":\"auto\"}},\"showBorder\":false}},\"customWidth\":\"25\",\"name\":\"indicator-types\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| where TimeGenerated > ago(24h)\\n| count\\n| project Count\",\"size\":4,\"title\":\"Last 24 Hours\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"tiles\",\"tileSettings\":{\"titleContent\":{\"columnMatch\":\"Count\",\"formatter\":12,\"formatOptions\":{\"palette\":\"auto\"}},\"showBorder\":false}},\"customWidth\":\"25\",\"name\":\"last-24h\"},{\"type\":1,\"content\":{\"json\":\"---\\n### Indicator Analysis\"},\"name\":\"analysis-header\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=count() by IndicatorType\\n| order by Count desc\",\"size\":2,\"title\":\"Indicators by Type\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"piechart\"},\"customWidth\":\"50\",\"name\":\"indicators-by-type\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=count() by CollectionName\\n| order by Count desc\",\"size\":2,\"title\":\"Indicators by Collection\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"barchart\"},\"customWidth\":\"50\",\"name\":\"indicators-by-collection\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=count() by bin(TimeGenerated, 1h)\\n| order by TimeGenerated asc\",\"size\":0,\"title\":\"Indicators Over Time\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"timechart\"},\"name\":\"indicators-timeline\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=count() by CollectionName\\n| top 10 by Count desc\",\"size\":2,\"title\":\"Top 10 Collections\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"barchart\"},\"name\":\"top-collections\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| project TimeGenerated, CollectionName, IndicatorType, IndicatorValue, Source\\n| order by TimeGenerated desc\\n| take 50\",\"size\":0,\"title\":\"Recent Indicators\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"table\"},\"name\":\"recent-indicators\"},{\"type\":1,\"content\":{\"json\":\"---\\n### Audit Monitoring\"},\"name\":\"audit-header\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_Audit_CL\\n| summarize Count=count() by Status\\n| order by Count desc\",\"size\":2,\"title\":\"Import Run Status\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"piechart\"},\"customWidth\":\"50\",\"name\":\"audit-status\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_Audit_CL\\n| summarize Created=sum(IndicatorsCreated), Skipped=sum(IndicatorsSkipped) by bin(TimeGenerated, 1h)\\n| order by TimeGenerated asc\",\"size\":0,\"title\":\"Indicators Created vs Skipped\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"timechart\"},\"customWidth\":\"50\",\"name\":\"created-vs-skipped\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_Audit_CL\\n| project TimeGenerated, Status, CollectionsProcessed, IndicatorsCreated, IndicatorsSkipped, DurationMs, ErrorMessage\\n| order by TimeGenerated desc\\n| take 20\",\"size\":0,\"title\":\"Recent Import Runs\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"table\"},\"name\":\"recent-runs\"}],\"isLocked\":false,\"fallbackResourceIds\":[\"/subscriptions/{Subscription}/resourceGroups/{ResourceGroup}/providers/Microsoft.OperationalInsights/workspaces/{Workspace}\"]}",
+                "version": "1.0",
+                "sourceId": "[variables('workspaceResourceId')]",
+                "category": "sentinel"
+            }
         }
     ],
     "outputs": {
@@ -770,6 +775,10 @@
         "auditTableName": {
             "type": "string",
             "value": "[if(parameters('EnableAuditLogging'), variables('AuditTableName'), 'N/A')]"
+        },
+        "workbookName": {
+            "type": "string",
+            "value": "[if(and(parameters('EnableWorkbook'), parameters('EnableFeedsTable')), variables('WorkbookName'), 'N/A')]"
         }
     }
 }
