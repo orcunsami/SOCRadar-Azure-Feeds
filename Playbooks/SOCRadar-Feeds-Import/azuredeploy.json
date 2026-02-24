@@ -304,10 +304,15 @@
                                     "foreach": "@body('Filter_New_Indicators')",
                                     "runtimeConfiguration": { "concurrency": { "repetitions": 10 } },
                                     "actions": {
+                                        "Resolve_STIX_Type": {
+                                            "type": "Compose",
+                                            "inputs": "@if(or(equals(items('For_Each_Collection')?['type'], 'ip'), equals(items('For_Each_Collection')?['type'], 'ipv4-addr')), 'ipv4-addr', if(or(equals(items('For_Each_Collection')?['type'], 'domain'), equals(items('For_Each_Collection')?['type'], 'hostname'), equals(items('For_Each_Collection')?['type'], 'domain-name')), 'domain-name', if(or(equals(items('For_Each_Collection')?['type'], 'hash'), equals(items('For_Each_Collection')?['type'], 'file')), 'file', if(equals(items('For_Each_Collection')?['type'], 'url'), 'url', if(or(equals(items('For_Each_Collection')?['type'], 'email'), equals(items('For_Each_Collection')?['type'], 'email-addr')), 'email-addr', 'domain-name')))))",
+                                            "runAfter": {}
+                                        },
                                         "Build_Pattern": {
                                             "type": "Compose",
-                                            "inputs": "@if(or(equals(items('For_Each_Collection')?['type'], 'ipv4-addr'), equals(items('For_Each_Collection')?['type'], 'ip')), concat('[ipv4-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(or(equals(items('For_Each_Collection')?['type'], 'domain-name'), equals(items('For_Each_Collection')?['type'], 'domain'), equals(items('For_Each_Collection')?['type'], 'hostname')), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(or(equals(items('For_Each_Collection')?['type'], 'file'), equals(items('For_Each_Collection')?['type'], 'hash')), concat('[file:hashes.MD5 = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(items('For_Each_Collection')?['type'], 'url'), concat('[url:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(or(equals(items('For_Each_Collection')?['type'], 'email-addr'), equals(items('For_Each_Collection')?['type'], 'email')), concat('[email-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'))))))",
-                                            "runAfter": {}
+                                            "inputs": "@if(equals(outputs('Resolve_STIX_Type'), 'ipv4-addr'), concat('[ipv4-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'domain-name'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'file'), concat('[file:hashes.MD5 = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'url'), concat('[url:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'email-addr'), concat('[email-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'))))))",
+                                            "runAfter": { "Resolve_STIX_Type": ["Succeeded"] }
                                         },
                                         "Upload_To_Sentinel_TI": {
                                             "type": "Http",
@@ -323,7 +328,7 @@
                                                         "displayName": "@{concat(items('For_Each_Collection')?['type'], ' - ', take(coalesce(items('For_Each_New_Indicator')?['feed'], ''), 100))}",
                                                         "description": "@{concat('SOCRadar feed: ', items('For_Each_Collection')?['name'])}",
                                                         "pattern": "@{outputs('Build_Pattern')}",
-                                                        "patternType": "@{items('For_Each_Collection')?['type']}",
+                                                        "patternType": "@{outputs('Resolve_STIX_Type')}",
                                                         "confidence": 80,
                                                         "threatTypes": ["Malware"],
                                                         "validFrom": "@{coalesce(items('For_Each_New_Indicator')?['latest_seen_date'], utcNow())}",
