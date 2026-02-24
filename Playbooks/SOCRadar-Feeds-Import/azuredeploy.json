@@ -53,7 +53,7 @@
             "type": "string",
             "defaultValue": "",
             "metadata": {
-                "description": "Comma-separated indicator types for custom collections (ip, domain, hash, url, email)"
+                "description": "Comma-separated STIX indicator types for custom collections (ipv4-addr, domain-name, file, url, email-addr)"
             }
         },
         "StorageAccountName": {
