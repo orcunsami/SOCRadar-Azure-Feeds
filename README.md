@@ -7,7 +7,7 @@ Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentin
 ## Prerequisites
 
 - Microsoft Sentinel workspace
-- SOCRadar API Key
+- SOCRadar Platform API Key
 
 ## Configuration
 
@@ -17,7 +17,7 @@ Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentin
 |-----------|-------------|
 | `WorkspaceName` | Your Sentinel workspace name (e.g., `my-sentinel-workspace`, NOT the Workspace ID/GUID) |
 | `WorkspaceLocation` | Region of your workspace (e.g., `centralus`, `northeurope`) |
-| `SOCRadarAPIKey` | Your SOCRadar API key |
+| `SOCRadarApiKey` | Your SOCRadar Platform API key |
 
 ### Optional Parameters
 
