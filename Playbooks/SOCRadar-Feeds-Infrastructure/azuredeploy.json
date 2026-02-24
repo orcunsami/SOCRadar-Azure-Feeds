@@ -6,7 +6,7 @@
         "description": "Deploys infrastructure components required for SOCRadar Threat Feeds integration: Storage Account, DCE, custom tables, and DCRs. Deploy this BEFORE the Import playbook.",
         "version": "1.0.0",
         "author": "SOCRadar",
-        "lastUpdateTime": "2026-02-23T00:00:00.000Z"
+        "lastUpdateTime": "2026-02-24T00:00:00.000Z"
     },
     "parameters": {
         "WorkspaceName": {
@@ -31,7 +31,7 @@
         },
         "EnableAuditLogging": {
             "type": "bool",
-            "defaultValue": false,
+            "defaultValue": true,
             "metadata": {
                 "description": "Enable audit logging to SOCRadar_Feeds_Audit_CL custom table"
             }

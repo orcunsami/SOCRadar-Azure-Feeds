@@ -6,7 +6,7 @@
         "description": "Logic App playbook that imports threat intelligence indicators from SOCRadar feed API into Microsoft Sentinel. Requires pre-deployed infrastructure (workspace, storage, DCR).",
         "version": "1.0.0",
         "author": "SOCRadar",
-        "lastUpdateTime": "2026-02-23T00:00:00.000Z"
+        "lastUpdateTime": "2026-02-24T00:00:00.000Z"
     },
     "parameters": {
         "WorkspaceName": {
@@ -71,34 +71,16 @@
                 "description": "How often to poll SOCRadar feeds (5-1440 minutes)"
             }
         },
-        "MinConfidence": {
-            "type": "int",
-            "defaultValue": 0,
-            "minValue": 0,
-            "maxValue": 100,
-            "metadata": {
-                "description": "Minimum confidence score to upload indicator (0-100)"
-            }
-        },
-        "MaxCollectionsPerRun": {
-            "type": "int",
-            "defaultValue": 50,
-            "minValue": 1,
-            "maxValue": 500,
-            "metadata": {
-                "description": "Maximum collections to process per run"
-            }
-        },
         "EnableFeedsTable": {
             "type": "bool",
-            "defaultValue": false,
+            "defaultValue": true,
             "metadata": {
                 "description": "Enable logging indicators to SOCRadar_Feeds_CL custom table"
             }
         },
         "EnableAuditLogging": {
             "type": "bool",
-            "defaultValue": false,
+            "defaultValue": true,
             "metadata": {
                 "description": "Enable audit logging to SOCRadar_Feeds_Audit_CL custom table"
             }
@@ -153,7 +135,7 @@
             "location": "[resourceGroup().location]",
             "identity": { "type": "SystemAssigned" },
             "properties": {
-                "state": "Disabled",
+                "state": "Enabled",
                 "definition": {
                     "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
                     "contentVersion": "1.0.0.0",
@@ -166,10 +148,9 @@
                         "WorkspaceName": { "type": "String" },
                         "StorageAccountName": { "type": "String" },
                         "PollingIntervalMinutes": { "type": "Int" },
-                        "MinConfidence": { "type": "Int" },
-                        "MaxCollectionsPerRun": { "type": "Int" },
-                        "EnableFeedsTable": { "type": "Bool", "defaultValue": false },
-                        "EnableAuditLogging": { "type": "Bool", "defaultValue": false },
+                        "MaxCollectionsPerRun": { "type": "Int", "defaultValue": 50 },
+                        "EnableFeedsTable": { "type": "Bool", "defaultValue": true },
+                        "EnableAuditLogging": { "type": "Bool", "defaultValue": true },
                         "FeedsDcrEndpoint": { "type": "String", "defaultValue": "" },
                         "FeedsDcrImmutableId": { "type": "String", "defaultValue": "" },
                         "FeedsStreamName": { "type": "String", "defaultValue": "Custom-SOCRadar_Feeds_CL" },
@@ -488,8 +469,6 @@
                     "WorkspaceName": { "value": "[parameters('WorkspaceName')]" },
                     "StorageAccountName": { "value": "[parameters('StorageAccountName')]" },
                     "PollingIntervalMinutes": { "value": "[parameters('PollingIntervalMinutes')]" },
-                    "MinConfidence": { "value": "[parameters('MinConfidence')]" },
-                    "MaxCollectionsPerRun": { "value": "[parameters('MaxCollectionsPerRun')]" },
                     "EnableFeedsTable": { "value": "[parameters('EnableFeedsTable')]" },
                     "EnableAuditLogging": { "value": "[parameters('EnableAuditLogging')]" },
                     "FeedsDcrEndpoint": { "value": "[parameters('FeedsDcrEndpoint')]" },
