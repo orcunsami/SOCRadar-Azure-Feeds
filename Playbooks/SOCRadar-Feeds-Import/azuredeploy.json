@@ -49,13 +49,6 @@
                 "description": "Comma-separated custom collection names (matching IDs order)"
             }
         },
-        "CustomCollectionTypes": {
-            "type": "string",
-            "defaultValue": "",
-            "metadata": {
-                "description": "Comma-separated indicator types for custom collections (ip, domain, hash, url, email)"
-            }
-        },
         "StorageAccountName": {
             "type": "string",
             "metadata": {
@@ -144,7 +137,6 @@
                         "IncludeRecommended": { "type": "Bool" },
                         "CustomCollectionIds": { "type": "String" },
                         "CustomCollectionNames": { "type": "String" },
-                        "CustomCollectionTypes": { "type": "String" },
                         "WorkspaceName": { "type": "String" },
                         "StorageAccountName": { "type": "String" },
                         "PollingIntervalMinutes": { "type": "Int" },
@@ -180,13 +172,13 @@
                         "Build_Recommended_Collections": {
                             "type": "Compose",
                             "inputs": [
-                                {"id": "4d7a69ce6e7c49ff8c916da5d7343916", "name": "SOCRadar-APT-Recommended-Block-IP", "type": "ipv4-addr"},
-                                {"id": "0cb06558728b4dc296019c93b78360d1", "name": "SOCRadar-APT-Recommended-Block-Hash", "type": "file"},
-                                {"id": "9079dcc2f96e4835bb807026d4cdcc86", "name": "SOCRadar-APT-Recommended-Block-Domain", "type": "domain-name"},
-                                {"id": "8742cab86cc4414092217f87298e94a1", "name": "SOCRadar-Recommended-Block-Hash", "type": "file"},
-                                {"id": "e89ab3b58e174b8c82767088d8e66cae", "name": "SOCRadar-Attackers-Recommended-Block-IP", "type": "ipv4-addr"},
-                                {"id": "606a83358bbe466d8c3885e37fa595b7", "name": "SOCRadar-Attackers-Recommended-Block-Domain", "type": "domain-name"},
-                                {"id": "03cc11380b5d4a77a0d0cc2a7c568230", "name": "SOCRadar-Recommended-Phishing-Global", "type": "url"}
+                                {"id": "4d7a69ce6e7c49ff8c916da5d7343916", "name": "SOCRadar-APT-Recommended-Block-IP"},
+                                {"id": "0cb06558728b4dc296019c93b78360d1", "name": "SOCRadar-APT-Recommended-Block-Hash"},
+                                {"id": "9079dcc2f96e4835bb807026d4cdcc86", "name": "SOCRadar-APT-Recommended-Block-Domain"},
+                                {"id": "8742cab86cc4414092217f87298e94a1", "name": "SOCRadar-Recommended-Block-Hash"},
+                                {"id": "e89ab3b58e174b8c82767088d8e66cae", "name": "SOCRadar-Attackers-Recommended-Block-IP"},
+                                {"id": "606a83358bbe466d8c3885e37fa595b7", "name": "SOCRadar-Attackers-Recommended-Block-Domain"},
+                                {"id": "03cc11380b5d4a77a0d0cc2a7c568230", "name": "SOCRadar-Recommended-Phishing-Global"}
                             ],
                             "runAfter": { "Record_Start_Time": ["Succeeded"] }
                         },
@@ -204,8 +196,7 @@
                                         "from": "@range(0, length(split(parameters('CustomCollectionIds'), ',')))",
                                         "select": {
                                             "id": "@trim(split(parameters('CustomCollectionIds'), ',')[item()])",
-                                            "name": "@if(and(not(empty(parameters('CustomCollectionNames'))), less(item(), length(split(parameters('CustomCollectionNames'), ',')))), trim(split(parameters('CustomCollectionNames'), ',')[item()]), concat('Custom-Feed-', add(item(), 1)))",
-                                            "type": "@if(and(not(empty(parameters('CustomCollectionTypes'))), less(item(), length(split(parameters('CustomCollectionTypes'), ',')))), trim(split(parameters('CustomCollectionTypes'), ',')[item()]), 'unknown')"
+                                            "name": "@if(and(not(empty(parameters('CustomCollectionNames'))), less(item(), length(split(parameters('CustomCollectionNames'), ',')))), trim(split(parameters('CustomCollectionNames'), ',')[item()]), concat('Custom-Feed-', add(item(), 1)))"
                                         }
                                     },
                                     "runAfter": {}
@@ -306,7 +297,7 @@
                                     "actions": {
                                         "Resolve_STIX_Type": {
                                             "type": "Compose",
-                                            "inputs": "@if(or(equals(items('For_Each_Collection')?['type'], 'ip'), equals(items('For_Each_Collection')?['type'], 'ipv4-addr')), 'ipv4-addr', if(or(equals(items('For_Each_Collection')?['type'], 'domain'), equals(items('For_Each_Collection')?['type'], 'hostname'), equals(items('For_Each_Collection')?['type'], 'domain-name')), 'domain-name', if(or(equals(items('For_Each_Collection')?['type'], 'hash'), equals(items('For_Each_Collection')?['type'], 'file')), 'file', if(equals(items('For_Each_Collection')?['type'], 'url'), 'url', if(or(equals(items('For_Each_Collection')?['type'], 'email'), equals(items('For_Each_Collection')?['type'], 'email-addr')), 'email-addr', 'domain-name')))))",
+                                            "inputs": "@if(or(equals(coalesce(items('For_Each_New_Indicator')?['feed_type'], ''), 'ip'), equals(coalesce(items('For_Each_New_Indicator')?['feed_type'], ''), 'ipv4-addr')), 'ipv4-addr', if(or(equals(coalesce(items('For_Each_New_Indicator')?['feed_type'], ''), 'domain'), equals(coalesce(items('For_Each_New_Indicator')?['feed_type'], ''), 'hostname'), equals(coalesce(items('For_Each_New_Indicator')?['feed_type'], ''), 'domain-name')), 'domain-name', if(or(equals(coalesce(items('For_Each_New_Indicator')?['feed_type'], ''), 'hash'), equals(coalesce(items('For_Each_New_Indicator')?['feed_type'], ''), 'file')), 'file', if(equals(coalesce(items('For_Each_New_Indicator')?['feed_type'], ''), 'url'), 'url', if(or(equals(coalesce(items('For_Each_New_Indicator')?['feed_type'], ''), 'email'), equals(coalesce(items('For_Each_New_Indicator')?['feed_type'], ''), 'email-addr')), 'email-addr', 'domain-name')))))",
                                             "runAfter": {}
                                         },
                                         "Build_Pattern": {
@@ -325,7 +316,7 @@
                                                     "kind": "indicator",
                                                     "properties": {
                                                         "source": "SOCRadar Threat Feeds",
-                                                        "displayName": "@{concat(items('For_Each_Collection')?['type'], ' - ', take(coalesce(items('For_Each_New_Indicator')?['feed'], ''), 100))}",
+                                                        "displayName": "@{concat(outputs('Resolve_STIX_Type'), ' - ', take(coalesce(items('For_Each_New_Indicator')?['feed'], ''), 100))}",
                                                         "description": "@{concat('SOCRadar feed: ', items('For_Each_Collection')?['name'])}",
                                                         "pattern": "@{outputs('Build_Pattern')}",
                                                         "patternType": "@{outputs('Resolve_STIX_Type')}",
@@ -387,7 +378,7 @@
                                                                 "CollectionName": "@{items('For_Each_Collection')?['name']}",
                                                                 "CollectionUUID": "@{items('For_Each_Collection')?['id']}",
                                                                 "IndicatorValue": "@{take(coalesce(items('For_Each_New_Indicator')?['feed'], ''), 500)}",
-                                                                "IndicatorType": "@{items('For_Each_Collection')?['type']}",
+                                                                "IndicatorType": "@{coalesce(items('For_Each_New_Indicator')?['feed_type'], 'unknown')}",
                                                                 "LatestSeenDate": "@{coalesce(items('For_Each_New_Indicator')?['latest_seen_date'], '')}",
                                                                 "Source": "SOCRadar Threat Feeds"
                                                             }
@@ -470,7 +461,6 @@
                     "IncludeRecommended": { "value": "[parameters('IncludeRecommended')]" },
                     "CustomCollectionIds": { "value": "[parameters('CustomCollectionIds')]" },
                     "CustomCollectionNames": { "value": "[parameters('CustomCollectionNames')]" },
-                    "CustomCollectionTypes": { "value": "[parameters('CustomCollectionTypes')]" },
                     "WorkspaceName": { "value": "[parameters('WorkspaceName')]" },
                     "StorageAccountName": { "value": "[parameters('StorageAccountName')]" },
                     "PollingIntervalMinutes": { "value": "[parameters('PollingIntervalMinutes')]" },
