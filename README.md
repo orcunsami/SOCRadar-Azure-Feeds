@@ -19,11 +19,24 @@ Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentin
 | `WorkspaceLocation` | Region of your workspace (e.g., `centralus`, `northeurope`) |
 | `SocradarApiKey` | Your SOCRadar Platform API key |
 
-### Optional Parameters
+### Recommended Feed Collections
+
+Each collection can be individually enabled/disabled during deployment (all enabled by default):
+
+| Parameter | Default | Feed Collection |
+|-----------|---------|-----------------|
+| `IncludeAPTBlockIP` | true | SOCRadar APT Recommended Block IP (~2000 indicators) |
+| `IncludeAPTBlockHash` | true | SOCRadar APT Recommended Block Hash (~600 indicators) |
+| `IncludeAPTBlockDomain` | true | SOCRadar APT Recommended Block Domain (~5900 indicators) |
+| `IncludeBlockHash` | true | SOCRadar Recommended Block Hash (~1400 indicators) |
+| `IncludeAttackersBlockIP` | true | SOCRadar Attackers Recommended Block IP (~3750 indicators) |
+| `IncludeAttackersBlockDomain` | true | SOCRadar Attackers Recommended Block Domain (~2850 indicators) |
+| `IncludePhishingGlobal` | true | SOCRadar Recommended Phishing Global (~750 indicators) |
+
+### Other Optional Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `IncludeRecommended` | true | Include 7 recommended SOCRadar threat feed collections |
 | `CustomCollectionIds` | "" | Comma-separated custom feed collection UUIDs |
 | `CustomCollectionNames` | "" | Comma-separated custom collection names (matching IDs order) |
 | `PollingIntervalMinutes` | 60 | How often to poll feeds (5-1440 minutes) |
@@ -42,7 +55,7 @@ Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentin
 
 ## Key Features
 
-- Support for 7 recommended threat feed collections (configurable)
+- 7 recommended threat feed collections (individually selectable)
 - Custom feed collections (indicator type auto-detected from feed data)
 - STIX pattern generation for Sentinel TI ingestion
 - Checkpoint-based deduplication to prevent duplicates
