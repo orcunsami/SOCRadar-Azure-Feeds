@@ -28,11 +28,53 @@
                 "description": "SOCRadar Platform API Key"
             }
         },
-        "IncludeRecommended": {
+        "IncludeAPTBlockIP": {
             "type": "bool",
             "defaultValue": true,
             "metadata": {
-                "description": "Include 7 recommended SOCRadar threat feed collections"
+                "description": "Include SOCRadar APT Recommended Block IP feed (~2000 indicators)"
+            }
+        },
+        "IncludeAPTBlockHash": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Include SOCRadar APT Recommended Block Hash feed (~600 indicators)"
+            }
+        },
+        "IncludeAPTBlockDomain": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Include SOCRadar APT Recommended Block Domain feed (~5900 indicators)"
+            }
+        },
+        "IncludeBlockHash": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Include SOCRadar Recommended Block Hash feed (~1400 indicators)"
+            }
+        },
+        "IncludeAttackersBlockIP": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Include SOCRadar Attackers Recommended Block IP feed (~3700 indicators)"
+            }
+        },
+        "IncludeAttackersBlockDomain": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Include SOCRadar Attackers Recommended Block Domain feed (~2800 indicators)"
+            }
+        },
+        "IncludePhishingGlobal": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Include SOCRadar Recommended Phishing Global feed (~750 indicators)"
             }
         },
         "CustomCollectionIds": {
@@ -344,7 +386,6 @@
                     "contentVersion": "1.0.0.0",
                     "parameters": {
                         "SocradarApiKey": { "type": "SecureString" },
-                        "IncludeRecommended": { "type": "Bool" },
                         "CustomCollectionIds": { "type": "String" },
                         "CustomCollectionNames": { "type": "String" },
                         "WorkspaceName": { "type": "String" },
@@ -381,15 +422,7 @@
                         },
                         "Build_Recommended_Collections": {
                             "type": "Compose",
-                            "inputs": [
-                                {"id": "4d7a69ce6e7c49ff8c916da5d7343916", "name": "SOCRadar-APT-Recommended-Block-IP"},
-                                {"id": "0cb06558728b4dc296019c93b78360d1", "name": "SOCRadar-APT-Recommended-Block-Hash"},
-                                {"id": "9079dcc2f96e4835bb807026d4cdcc86", "name": "SOCRadar-APT-Recommended-Block-Domain"},
-                                {"id": "8742cab86cc4414092217f87298e94a1", "name": "SOCRadar-Recommended-Block-Hash"},
-                                {"id": "e89ab3b58e174b8c82767088d8e66cae", "name": "SOCRadar-Attackers-Recommended-Block-IP"},
-                                {"id": "606a83358bbe466d8c3885e37fa595b7", "name": "SOCRadar-Attackers-Recommended-Block-Domain"},
-                                {"id": "03cc11380b5d4a77a0d0cc2a7c568230", "name": "SOCRadar-Recommended-Phishing-Global"}
-                            ],
+                            "inputs": "[concat(if(parameters('IncludeAPTBlockIP'),createArray(createObject('id','4d7a69ce6e7c49ff8c916da5d7343916','name','SOCRadar-APT-Recommended-Block-IP')),createArray()),if(parameters('IncludeAPTBlockHash'),createArray(createObject('id','0cb06558728b4dc296019c93b78360d1','name','SOCRadar-APT-Recommended-Block-Hash')),createArray()),if(parameters('IncludeAPTBlockDomain'),createArray(createObject('id','9079dcc2f96e4835bb807026d4cdcc86','name','SOCRadar-APT-Recommended-Block-Domain')),createArray()),if(parameters('IncludeBlockHash'),createArray(createObject('id','8742cab86cc4414092217f87298e94a1','name','SOCRadar-Recommended-Block-Hash')),createArray()),if(parameters('IncludeAttackersBlockIP'),createArray(createObject('id','e89ab3b58e174b8c82767088d8e66cae','name','SOCRadar-Attackers-Recommended-Block-IP')),createArray()),if(parameters('IncludeAttackersBlockDomain'),createArray(createObject('id','606a83358bbe466d8c3885e37fa595b7','name','SOCRadar-Attackers-Recommended-Block-Domain')),createArray()),if(parameters('IncludePhishingGlobal'),createArray(createObject('id','03cc11380b5d4a77a0d0cc2a7c568230','name','SOCRadar-Recommended-Phishing-Global')),createArray()))]",
                             "runAfter": { "Record_Start_Time": ["Succeeded"] }
                         },
                         "Check_Custom_Collections": {
@@ -430,7 +463,7 @@
                         },
                         "Build_All_Collections": {
                             "type": "Compose",
-                            "inputs": "@if(parameters('IncludeRecommended'), if(equals(length(outputs('Get_Custom_Result')), 0), outputs('Build_Recommended_Collections'), union(outputs('Build_Recommended_Collections'), outputs('Get_Custom_Result'))), if(equals(length(outputs('Get_Custom_Result')), 0), json('[]'), outputs('Get_Custom_Result')))",
+                            "inputs": "@union(outputs('Build_Recommended_Collections'), outputs('Get_Custom_Result'))",
                             "runAfter": { "Get_Custom_Result": ["Succeeded"] }
                         },
                         "Initialize_Total_Created": {
@@ -610,7 +643,8 @@
                                         "method": "PUT",
                                         "uri": "@{concat('https://', parameters('StorageAccountName'), '.table.core.windows.net/FeedState(PartitionKey=''', items('For_Each_Collection')?['id'], ''',RowKey=''state'')')}",
                                         "headers": {
-                                            "Content-Type": "application/json",
+                                            "Content-Type": "application/json;odata=noop",
+                                            "Accept": "application/json;odata=noop",
                                             "x-ms-version": "2020-12-06"
                                         },
                                         "authentication": { "type": "ManagedServiceIdentity", "audience": "https://storage.azure.com" },
@@ -668,7 +702,6 @@
                 },
                 "parameters": {
                     "SocradarApiKey": { "value": "[parameters('SocradarApiKey')]" },
-                    "IncludeRecommended": { "value": "[parameters('IncludeRecommended')]" },
                     "CustomCollectionIds": { "value": "[parameters('CustomCollectionIds')]" },
                     "CustomCollectionNames": { "value": "[parameters('CustomCollectionNames')]" },
                     "WorkspaceName": { "value": "[parameters('WorkspaceName')]" },
@@ -716,14 +749,30 @@
             }
         },
         {
-            "condition": "[variables('enableDce')]",
+            "condition": "[parameters('EnableFeedsTable')]",
             "type": "Microsoft.Authorization/roleAssignments",
             "apiVersion": "2022-04-01",
-            "name": "[guid(resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName')), variables('playbookName'), variables('MonitoringMetricsPublisherRoleId'))]",
-            "scope": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName'))]",
+            "name": "[guid(resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName')), variables('playbookName'), variables('MonitoringMetricsPublisherRoleId'))]",
+            "scope": "[resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName'))]",
             "dependsOn": [
                 "[resourceId('Microsoft.Logic/workflows', variables('playbookName'))]",
-                "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName'))]"
+                "[resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.Logic/workflows', variables('playbookName')), '2019-05-01', 'Full').identity.principalId]",
+                "principalType": "ServicePrincipal"
+            }
+        },
+        {
+            "condition": "[parameters('EnableAuditLogging')]",
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName')), variables('playbookName'), variables('MonitoringMetricsPublisherRoleId'))]",
+            "scope": "[resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Logic/workflows', variables('playbookName'))]",
+                "[resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName'))]"
             ],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
