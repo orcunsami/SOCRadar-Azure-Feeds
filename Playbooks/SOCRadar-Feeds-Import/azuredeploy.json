@@ -319,7 +319,7 @@
                                     "type": "Query",
                                     "inputs": {
                                         "from": "@json(body('Fetch_Feed'))",
-                                        "where": "@and(not(empty(item()?['feed'])), greater(coalesce(item()?['latest_seen_date'], '2099-01-01T00:00:00Z'), outputs('Get_Last_Processed_Date')))"
+                                        "where": "@and(not(empty(item()?['feed'])), or(empty(coalesce(item()?['latest_seen_date'], '')), greater(item()?['latest_seen_date'], outputs('Get_Last_Processed_Date'))))"
                                     },
                                     "runAfter": { "Get_Last_Processed_Date": ["Succeeded"] }
                                 },
@@ -335,7 +335,7 @@
                                         },
                                         "Build_Pattern": {
                                             "type": "Compose",
-                                            "inputs": "@if(equals(outputs('Resolve_STIX_Type'), 'ipv4-addr'), concat('[ipv4-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'domain-name'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'file'), concat('[file:hashes.MD5 = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'url'), concat('[url:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'email-addr'), concat('[email-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'))))))",
+                                            "inputs": "@if(equals(outputs('Resolve_STIX_Type'), 'ipv4-addr'), concat('[ipv4-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'domain-name'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'file'), if(equals(length(coalesce(items('For_Each_New_Indicator')?['feed'], '')), 64), concat('[file:hashes.''SHA-256'' = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(length(coalesce(items('For_Each_New_Indicator')?['feed'], '')), 40), concat('[file:hashes.''SHA-1'' = ''', items('For_Each_New_Indicator')?['feed'], ''']'), concat('[file:hashes.MD5 = ''', items('For_Each_New_Indicator')?['feed'], ''']'))), if(equals(outputs('Resolve_STIX_Type'), 'url'), concat('[url:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), if(equals(outputs('Resolve_STIX_Type'), 'email-addr'), concat('[email-addr:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'), concat('[domain-name:value = ''', items('For_Each_New_Indicator')?['feed'], ''']'))))))",
                                             "runAfter": { "Resolve_STIX_Type": ["Succeeded"] }
                                         },
                                         "Upload_To_Sentinel_TI": {
@@ -354,8 +354,9 @@
                                                         "pattern": "@{outputs('Build_Pattern')}",
                                                         "patternType": "@{outputs('Resolve_STIX_Type')}",
                                                         "confidence": 80,
-                                                        "threatTypes": ["Malware"],
+                                                        "threatTypes": ["@{if(contains(items('For_Each_Collection')?['name'], 'Phishing'), 'Phishing', if(contains(items('For_Each_Collection')?['name'], 'Attacker'), 'Malicious-Activity', 'Malware'))}"],
                                                         "validFrom": "@{coalesce(items('For_Each_New_Indicator')?['latest_seen_date'], utcNow())}",
+                                                        "validUntil": "@{addToTime(coalesce(items('For_Each_New_Indicator')?['latest_seen_date'], utcNow()), 90, 'Day')}",
                                                         "labels": ["SOCRadar", "Feeds", "@{items('For_Each_Collection')?['name']}"],
                                                         "threatIntelligenceTags": ["SOCRadar", "Feeds"]
                                                     }
