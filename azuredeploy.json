@@ -3,10 +3,10 @@
     "contentVersion": "1.0.0.0",
     "metadata": {
         "title": "SOCRadar Threat Feeds for Microsoft Sentinel",
-        "description": "Imports threat intelligence indicators from SOCRadar feed API into Microsoft Sentinel. Uses Logic App with Storage Table checkpoint, multi-collection support, and optional custom table logging.",
-        "version": "1.0.0",
+        "description": "Imports threat intelligence indicators from SOCRadar feed API into Microsoft Sentinel. Supports IP, domain, URL, hash (MD5/SHA-1/SHA-256), and email indicators with dynamic threat type classification, checkpoint-based deduplication, and optional custom table logging.",
+        "version": "1.1.0",
         "author": "SOCRadar",
-        "lastUpdateTime": "2026-02-24T00:00:00.000Z"
+        "lastUpdateTime": "2026-03-02T00:00:00.000Z"
     },
     "parameters": {
         "WorkspaceName": {
