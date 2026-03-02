@@ -30,7 +30,7 @@
         },
         "IncludeAPTBlockIP": {
             "type": "bool",
-            "defaultValue": true,
+            "defaultValue": false,
             "metadata": {
                 "description": "Include SOCRadar APT Recommended Block IP feed (~2000 indicators)"
             }
@@ -44,35 +44,35 @@
         },
         "IncludeAPTBlockDomain": {
             "type": "bool",
-            "defaultValue": true,
+            "defaultValue": false,
             "metadata": {
                 "description": "Include SOCRadar APT Recommended Block Domain feed (~5900 indicators)"
             }
         },
         "IncludeBlockHash": {
             "type": "bool",
-            "defaultValue": true,
+            "defaultValue": false,
             "metadata": {
                 "description": "Include SOCRadar Recommended Block Hash feed (~1400 indicators)"
             }
         },
         "IncludeAttackersBlockIP": {
             "type": "bool",
-            "defaultValue": true,
+            "defaultValue": false,
             "metadata": {
                 "description": "Include SOCRadar Attackers Recommended Block IP feed (~3700 indicators)"
             }
         },
         "IncludeAttackersBlockDomain": {
             "type": "bool",
-            "defaultValue": true,
+            "defaultValue": false,
             "metadata": {
                 "description": "Include SOCRadar Attackers Recommended Block Domain feed (~2800 indicators)"
             }
         },
         "IncludePhishingGlobal": {
             "type": "bool",
-            "defaultValue": true,
+            "defaultValue": false,
             "metadata": {
                 "description": "Include SOCRadar Recommended Phishing Global feed (~750 indicators)"
             }
