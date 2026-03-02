@@ -3,10 +3,10 @@
     "contentVersion": "1.0.0.0",
     "metadata": {
         "title": "SOCRadar Feeds Import",
-        "description": "Logic App playbook that imports threat intelligence indicators from SOCRadar feed API into Microsoft Sentinel. Requires pre-deployed infrastructure (workspace, storage, DCR).",
-        "version": "1.0.0",
+        "description": "Logic App playbook that polls SOCRadar feed collections and imports indicators into Microsoft Sentinel TI. Supports dynamic hash type detection (MD5/SHA-1/SHA-256), threat type classification by collection, and validUntil scheduling.",
+        "version": "1.1.0",
         "author": "SOCRadar",
-        "lastUpdateTime": "2026-02-24T00:00:00.000Z"
+        "lastUpdateTime": "2026-03-02T00:00:00.000Z"
     },
     "parameters": {
         "WorkspaceName": {

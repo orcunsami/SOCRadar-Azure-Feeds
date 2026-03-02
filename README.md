@@ -57,11 +57,24 @@ Each collection can be individually enabled/disabled during deployment (all enab
 
 - 7 recommended threat feed collections (individually selectable)
 - Custom feed collections (indicator type auto-detected from feed data)
-- STIX pattern generation for Sentinel TI ingestion
-- Checkpoint-based deduplication to prevent duplicates
-- Collection rotation for large deployments
+- STIX 2.1 pattern generation for Sentinel TI ingestion
+- Hash type auto-detection: MD5 (32), SHA-1 (40), SHA-256 (64 chars)
+- Dynamic threat type classification per collection (Phishing, Malicious-Activity, Malware)
+- ValidUntil scheduling (90 days from last seen date)
+- Checkpoint-based deduplication to prevent duplicate imports
 - Optional audit logging to Log Analytics
-- Analytics dashboard with indicator and audit visualizations
+
+## Indicator Types Supported
+
+| STIX Type | Pattern Example | Auto-detected From |
+|-----------|-----------------|-------------------|
+| IP | `[ipv4-addr:value = '1.2.3.4']` | ip type feeds |
+| Domain | `[domain-name:value = 'evil.com']` | domain type feeds |
+| URL | `[url:value = 'http://...']` | url type feeds |
+| Hash (MD5) | `[file:hashes.MD5 = '...']` | 32-char hash |
+| Hash (SHA-1) | `[file:hashes.'SHA-1' = '...']` | 40-char hash |
+| Hash (SHA-256) | `[file:hashes.'SHA-256' = '...']` | 64-char hash |
+| Email | `[email-addr:value = '...']` | email type feeds |
 
 ## Post-Deployment
 
