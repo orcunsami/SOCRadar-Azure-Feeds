@@ -25,13 +25,13 @@ Each collection can be individually enabled/disabled during deployment (all enab
 
 | Parameter | Default | Feed Collection |
 |-----------|---------|-----------------|
-| `IncludeAPTBlockIP` | true | SOCRadar APT Recommended Block IP (~2000 indicators) |
-| `IncludeAPTBlockHash` | true | SOCRadar APT Recommended Block Hash (~600 indicators) |
-| `IncludeAPTBlockDomain` | true | SOCRadar APT Recommended Block Domain (~5900 indicators) |
-| `IncludeBlockHash` | true | SOCRadar Recommended Block Hash (~1400 indicators) |
-| `IncludeAttackersBlockIP` | true | SOCRadar Attackers Recommended Block IP (~3750 indicators) |
-| `IncludeAttackersBlockDomain` | true | SOCRadar Attackers Recommended Block Domain (~2850 indicators) |
-| `IncludePhishingGlobal` | true | SOCRadar Recommended Phishing Global (~750 indicators) |
+| `IncludeAPTBlockHash` | **true** | SOCRadar APT Recommended Block Hash (~600 indicators) |
+| `IncludeAPTBlockIP` | false | SOCRadar APT Recommended Block IP (~2000 indicators) |
+| `IncludeAPTBlockDomain` | false | SOCRadar APT Recommended Block Domain (~5900 indicators) |
+| `IncludeBlockHash` | false | SOCRadar Recommended Block Hash (~1400 indicators) |
+| `IncludeAttackersBlockIP` | false | SOCRadar Attackers Recommended Block IP (~3750 indicators) |
+| `IncludeAttackersBlockDomain` | false | SOCRadar Attackers Recommended Block Domain (~2850 indicators) |
+| `IncludePhishingGlobal` | false | SOCRadar Recommended Phishing Global (~750 indicators) |
 
 ### Other Optional Parameters
 
