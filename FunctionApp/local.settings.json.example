@@ -1,0 +1,32 @@
+{
+    "IsEncrypted": false,
+    "Values": {
+        "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+        "FUNCTIONS_WORKER_RUNTIME": "python",
+        "AzureWebJobsFeatureFlags": "EnableWorkerIndexing",
+        "SOCRADAR_API_KEY": "",
+        "WORKSPACE_ID": "",
+        "WORKSPACE_NAME": "",
+        "SUBSCRIPTION_ID": "",
+        "RESOURCE_GROUP": "",
+        "STORAGE_ACCOUNT_NAME": "",
+        "POLLING_SCHEDULE": "0 0 */1 * * *",
+        "INCLUDE_4d7a69ce6e7c49ff8c916da5d7343916": "false",
+        "INCLUDE_0cb06558728b4dc296019c93b78360d1": "true",
+        "INCLUDE_9079dcc2f96e4835bb807026d4cdcc86": "false",
+        "INCLUDE_8742cab86cc4414092217f87298e94a1": "false",
+        "INCLUDE_e89ab3b58e174b8c82767088d8e66cae": "false",
+        "INCLUDE_606a83358bbe466d8c3885e37fa595b7": "false",
+        "INCLUDE_03cc11380b5d4a77a0d0cc2a7c568230": "false",
+        "CUSTOM_COLLECTION_IDS": "",
+        "CUSTOM_COLLECTION_NAMES": "",
+        "ENABLE_FEEDS_TABLE": "true",
+        "ENABLE_AUDIT_LOGGING": "true",
+        "FEEDS_DCR_ENDPOINT": "",
+        "FEEDS_DCR_IMMUTABLE_ID": "",
+        "FEEDS_STREAM_NAME": "Custom-SOCRadar_Feeds_CL",
+        "AUDIT_DCR_ENDPOINT": "",
+        "AUDIT_DCR_IMMUTABLE_ID": "",
+        "AUDIT_STREAM_NAME": "Custom-SOCRadar_Feeds_Audit_CL"
+    }
+}
