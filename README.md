@@ -2,7 +2,7 @@
 
 Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentinel TI.
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Azure-Feeds%2Fmaster%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Azure-Feeds%2Ffunction%2Fazuredeploy.json)
 
 ## Prerequisites
 
@@ -46,7 +46,7 @@ Each collection can be individually enabled/disabled during deployment (all enab
 
 ## What Gets Deployed
 
-- **SOCRadar-Feeds-Import** - Logic App that polls SOCRadar feeds and imports indicators as TI
+- **SOCRadar-Feeds-Import** - Azure Function App that polls SOCRadar feeds and imports indicators as TI
 - **Storage Account** - Checkpoint state for deduplication
 - **Sentinel TI Indicators** - Imported as TiIndicators in your workspace
 - **SOCRadar_Feeds_CL** - Custom table for indicator analytics (if EnableFeedsTable=true)
@@ -78,9 +78,9 @@ Each collection can be individually enabled/disabled during deployment (all enab
 
 ## Post-Deployment
 
-Logic Apps are configured to start **3 minutes after deployment** to allow Azure role propagation.
+Function App runs on a timer trigger based on the configured polling interval.
 
-No manual action required - they will start automatically.
+No manual action required - it will start automatically.
 
 ## About SOCRadar
 
