@@ -123,14 +123,18 @@ class FeedsProcessor:
         self.table_client.upsert_entity(entity)
 
     def filter_new_indicators(self, items: List[dict], checkpoint: str) -> List[dict]:
+        is_first_run = checkpoint == "1970-01-01T00:00:00Z"
         new_items = []
         for item in items:
             feed_val = (item.get("feed") or "").strip()
             if not feed_val:
                 continue
             latest_seen = item.get("latest_seen_date", "")
-            # Include if no date or newer than checkpoint
-            if not latest_seen or latest_seen > checkpoint:
+            if not latest_seen:
+                # Items without date: include only on first run
+                if is_first_run:
+                    new_items.append(item)
+            elif latest_seen > checkpoint:
                 new_items.append(item)
         return new_items
 
