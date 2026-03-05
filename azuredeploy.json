@@ -28,53 +28,11 @@
                 "description": "SOCRadar Platform API Key"
             }
         },
-        "IncludeAPTBlockIP": {
-            "type": "bool",
-            "defaultValue": false,
-            "metadata": {
-                "description": "Include SOCRadar APT Recommended Block IP feed (~2000 indicators)"
-            }
-        },
         "IncludeAPTBlockHash": {
             "type": "bool",
             "defaultValue": true,
             "metadata": {
-                "description": "Include SOCRadar APT Recommended Block Hash feed (~600 indicators)"
-            }
-        },
-        "IncludeAPTBlockDomain": {
-            "type": "bool",
-            "defaultValue": false,
-            "metadata": {
-                "description": "Include SOCRadar APT Recommended Block Domain feed (~5900 indicators)"
-            }
-        },
-        "IncludeBlockHash": {
-            "type": "bool",
-            "defaultValue": false,
-            "metadata": {
-                "description": "Include SOCRadar Recommended Block Hash feed (~1400 indicators)"
-            }
-        },
-        "IncludeAttackersBlockIP": {
-            "type": "bool",
-            "defaultValue": false,
-            "metadata": {
-                "description": "Include SOCRadar Attackers Recommended Block IP feed (~3700 indicators)"
-            }
-        },
-        "IncludeAttackersBlockDomain": {
-            "type": "bool",
-            "defaultValue": false,
-            "metadata": {
-                "description": "Include SOCRadar Attackers Recommended Block Domain feed (~2800 indicators)"
-            }
-        },
-        "IncludePhishingGlobal": {
-            "type": "bool",
-            "defaultValue": false,
-            "metadata": {
-                "description": "Include SOCRadar Recommended Phishing Global feed (~750 indicators)"
+                "description": "Include SOCRadar APT Recommended Block Hash feed (~500 indicators). Add more feeds via Custom Collection IDs."
             }
         },
         "CustomCollectionIds": {
@@ -453,32 +411,8 @@
                             "value": "[variables('storageAccountName')]"
                         },
                         {
-                            "name": "INCLUDE_4d7a69ce6e7c49ff8c916da5d7343916",
-                            "value": "[string(parameters('IncludeAPTBlockIP'))]"
-                        },
-                        {
                             "name": "INCLUDE_0cb06558728b4dc296019c93b78360d1",
                             "value": "[string(parameters('IncludeAPTBlockHash'))]"
-                        },
-                        {
-                            "name": "INCLUDE_9079dcc2f96e4835bb807026d4cdcc86",
-                            "value": "[string(parameters('IncludeAPTBlockDomain'))]"
-                        },
-                        {
-                            "name": "INCLUDE_8742cab86cc4414092217f87298e94a1",
-                            "value": "[string(parameters('IncludeBlockHash'))]"
-                        },
-                        {
-                            "name": "INCLUDE_e89ab3b58e174b8c82767088d8e66cae",
-                            "value": "[string(parameters('IncludeAttackersBlockIP'))]"
-                        },
-                        {
-                            "name": "INCLUDE_606a83358bbe466d8c3885e37fa595b7",
-                            "value": "[string(parameters('IncludeAttackersBlockDomain'))]"
-                        },
-                        {
-                            "name": "INCLUDE_03cc11380b5d4a77a0d0cc2a7c568230",
-                            "value": "[string(parameters('IncludePhishingGlobal'))]"
                         },
                         {
                             "name": "CUSTOM_COLLECTION_IDS",
