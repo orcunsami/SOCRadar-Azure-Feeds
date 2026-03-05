@@ -379,8 +379,16 @@
                             "value": "python"
                         },
                         {
-                            "name": "WEBSITE_RUN_FROM_PACKAGE",
-                            "value": "1"
+                            "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+                            "value": "true"
+                        },
+                        {
+                            "name": "ENABLE_ORYX_BUILD",
+                            "value": "true"
+                        },
+                        {
+                            "name": "PROJECT",
+                            "value": "FunctionApp"
                         },
                         {
                             "name": "POLLING_SCHEDULE",
@@ -516,6 +524,19 @@
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
                 "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-12-01', 'Full').identity.principalId]",
                 "principalType": "ServicePrincipal"
+            }
+        },
+        {
+            "type": "Microsoft.Web/sites/sourcecontrols",
+            "apiVersion": "2023-12-01",
+            "name": "[concat(variables('functionAppName'), '/web')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+            ],
+            "properties": {
+                "repoUrl": "https://github.com/orcunsami/SOCRadar-Azure-Feeds.git",
+                "branch": "function",
+                "isManualIntegration": true
             }
         },
         {
