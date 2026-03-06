@@ -4,6 +4,9 @@ Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentin
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Azure-Feeds%2Ffunction%2Fazuredeploy.json)
 
+UI deployment uses Azure source control integration from the `function` branch and
+builds the `FunctionApp/` project on Azure with Oryx.
+
 ## Prerequisites
 
 - Microsoft Sentinel workspace
