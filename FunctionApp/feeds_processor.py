@@ -60,10 +60,12 @@ class FeedsProcessor:
     @classmethod
     def from_env(cls) -> "FeedsProcessor":
         collections = []
+        seen_collection_ids = set()
         for cid, cname in RECOMMENDED_COLLECTIONS.items():
             env_key = f"INCLUDE_{cid}"
             if os.environ.get(env_key, "false").lower() == "true":
                 collections.append({"id": cid, "name": cname})
+                seen_collection_ids.add(cid)
 
         custom_ids = os.environ.get("CUSTOM_COLLECTION_IDS", "").strip()
         custom_names = os.environ.get("CUSTOM_COLLECTION_NAMES", "").strip()
@@ -71,8 +73,12 @@ class FeedsProcessor:
             ids = [x.strip() for x in custom_ids.split(",") if x.strip()]
             names = [x.strip() for x in custom_names.split(",")] if custom_names else []
             for i, cid in enumerate(ids):
+                if cid in seen_collection_ids:
+                    logger.warning("Skipping duplicate custom collection id: %s", cid)
+                    continue
                 name = names[i] if i < len(names) else f"Custom-Feed-{i + 1}"
                 collections.append({"id": cid, "name": name})
+                seen_collection_ids.add(cid)
 
         return cls({
             "socradar_api_key": os.environ["SOCRADAR_API_KEY"],
@@ -95,7 +101,11 @@ class FeedsProcessor:
     def fetch_feed(self, collection_id: str) -> List[dict]:
         url = f"{SOCRADAR_FEED_URL}/{collection_id}.json?key={self.api_key}&v=2"
         resp = requests.get(url, timeout=60)
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            body = resp.text[:500].replace("\n", " ")
+            raise RuntimeError(
+                f"Feed API failed for {collection_id}: HTTP {resp.status_code} - {body}"
+            )
         data = resp.json()
         return data if isinstance(data, list) else data.get("data", [])
 
@@ -131,9 +141,8 @@ class FeedsProcessor:
                 continue
             latest_seen = item.get("latest_seen_date", "")
             if not latest_seen:
-                # Items without date: include only on first run
-                if is_first_run:
-                    new_items.append(item)
+                # Match the Logic App behavior: always process undated indicators.
+                new_items.append(item)
             elif latest_seen > checkpoint:
                 new_items.append(item)
         return new_items
@@ -170,6 +179,7 @@ class FeedsProcessor:
         total_created = 0
         total_skipped = 0
         collections_processed = 0
+        collection_errors = []
 
         if not self.collections:
             logger.warning("No collections configured")
@@ -222,7 +232,14 @@ class FeedsProcessor:
                 logger.info("  Done: %d created, %d skipped", col_created, col_skipped)
 
             except Exception as e:
-                logger.error("  Error processing %s: %s", col["name"], e)
+                message = f"{col['name']} ({col['id']}): {e}"
+                collection_errors.append(message)
+                logger.exception("  Error processing %s", message)
+
+        if collection_errors:
+            logger.error("Collection failures: %s", " | ".join(collection_errors))
+            if collections_processed == 0:
+                raise RuntimeError("All configured collections failed: " + " | ".join(collection_errors))
 
         return {
             "collections_processed": collections_processed,
