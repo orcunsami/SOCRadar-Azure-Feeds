@@ -78,6 +78,13 @@
             "metadata": {
                 "description": "Deploy SOCRadar Threat Feeds Analytics Dashboard workbook"
             }
+        },
+        "EnableSourceControlIntegration": {
+            "type": "bool",
+            "defaultValue": false,
+            "metadata": {
+                "description": "Configure Deployment Center source control during ARM deployment"
+            }
         }
     },
     "variables": {
@@ -531,6 +538,7 @@
             }
         },
         {
+            "condition": "[parameters('EnableSourceControlIntegration')]",
             "type": "Microsoft.Web/sites/sourcecontrols",
             "apiVersion": "2023-12-01",
             "name": "[concat(variables('functionAppName'), '/web')]",
