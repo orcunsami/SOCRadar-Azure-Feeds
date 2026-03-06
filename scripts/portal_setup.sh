@@ -93,35 +93,8 @@ echo ""
 echo "  Function App: $FUNC_APP_NAME"
 echo ""
 
-# Step 2: Zip deploy Function code
-echo "=== Step 2: Deploying Function Code ==="
-FUNC_DIR="$REPO_ROOT/FunctionApp"
-if [ ! -f "$FUNC_DIR/function_app.py" ]; then
-    echo "ERROR: FunctionApp/function_app.py not found"
-    exit 1
-fi
-
-# Create zip of FunctionApp contents
-ZIP_FILE="/tmp/socradar-feeds-func.zip"
-rm -f "$ZIP_FILE"
-(cd "$FUNC_DIR" && zip -r "$ZIP_FILE" . -x "*.pyc" "__pycache__/*" ".venv/*" "local.settings.json" "local.settings.json.example")
-echo "  Created zip: $(du -h "$ZIP_FILE" | cut -f1)"
-
-# Deploy with remote build (installs requirements.txt on Azure)
-echo "  Deploying (remote build)..."
-az functionapp deployment source config-zip \
-    --name "$FUNC_APP_NAME" \
-    -g "$RESOURCE_GROUP" \
-    --src "$ZIP_FILE" \
-    --build-remote true \
-    -o none
-
-rm -f "$ZIP_FILE"
-echo "  Deploy complete"
-echo ""
-
-# Step 3: Verify Function App
-echo "=== Step 3: Verifying Function App ==="
+# Step 2: Verify Function App
+echo "=== Step 2: Verifying Function App ==="
 FA_STATE=$(az functionapp show --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "state" -o tsv 2>/dev/null || echo "NOT_FOUND")
 FA_PRINCIPAL=$(az functionapp show --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "identity.principalId" -o tsv 2>/dev/null || echo "")
 
@@ -130,8 +103,8 @@ echo "  State:        $FA_STATE"
 echo "  Principal:    $FA_PRINCIPAL"
 echo ""
 
-# Step 4: Verify role assignments
-echo "=== Step 4: Verifying Role Assignments ==="
+# Step 3: Verify role assignments
+echo "=== Step 3: Verifying Role Assignments ==="
 if [ -n "$FA_PRINCIPAL" ]; then
     SENTINEL_ROLE=$(az role assignment list --assignee "$FA_PRINCIPAL" \
         --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP" \
@@ -146,8 +119,8 @@ else
 fi
 echo ""
 
-# Step 5: Verify Storage Account
-echo "=== Step 5: Verifying Storage ==="
+# Step 4: Verify Storage Account
+echo "=== Step 4: Verifying Storage ==="
 STORAGE_ACCOUNT=$(az storage account list -g "$RESOURCE_GROUP" --query "[?starts_with(name, 'srfeeds')].name" -o tsv 2>/dev/null | head -1)
 if [ -n "$STORAGE_ACCOUNT" ]; then
     echo "  Storage Account: $STORAGE_ACCOUNT"
@@ -158,8 +131,8 @@ else
 fi
 echo ""
 
-# Step 6: Wait for role propagation
-echo "=== Step 6: Role Propagation (60 seconds) ==="
+# Step 5: Wait for role propagation
+echo "=== Step 5: Role Propagation (60 seconds) ==="
 for i in $(seq 60 -1 1); do
     printf "\r  Waiting: %d seconds remaining..." "$i"
     sleep 1
