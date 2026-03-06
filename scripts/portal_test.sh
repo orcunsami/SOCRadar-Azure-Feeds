@@ -6,14 +6,18 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+ENV_RESOURCE_GROUP="${RESOURCE_GROUP:-}"
+ENV_WORKSPACE_NAME="${WORKSPACE_NAME:-}"
+ENV_SUBSCRIPTION_ID="${SUBSCRIPTION_ID:-}"
+
 # Load config
 if [ -f "$SCRIPT_DIR/test.config" ]; then
     source "$SCRIPT_DIR/test.config"
 fi
 
-RESOURCE_GROUP="${RESOURCE_GROUP:-rg-app}"
-WORKSPACE_NAME="${WORKSPACE_NAME:-socradar-feeds-func-mar03}"
-SUBSCRIPTION_ID="${SUBSCRIPTION_ID:-00000000-0000-0000-0000-000000000000}"
+RESOURCE_GROUP="${ENV_RESOURCE_GROUP:-${RESOURCE_GROUP:-rg-app}}"
+WORKSPACE_NAME="${ENV_WORKSPACE_NAME:-${WORKSPACE_NAME:-socradar-feeds-func-mar03}}"
+SUBSCRIPTION_ID="${ENV_SUBSCRIPTION_ID:-${SUBSCRIPTION_ID:-00000000-0000-0000-0000-000000000000}}"
 
 # Find Function App name
 FUNC_APP_NAME=$(az functionapp list -g "$RESOURCE_GROUP" --query "[?starts_with(name, 'socradar-feeds-')].name" -o tsv 2>/dev/null | head -1)

@@ -1,11 +1,24 @@
 #!/bin/bash
 # SOCRadar Feeds Function App - Azure Setup Script
-# Deploys ARM template + zip deploys Function App code
+# Deploys ARM template + repo-based Function App code
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR/.."
+
+ENV_SOCRADAR_API_KEY="${SOCRADAR_API_KEY:-}"
+ENV_SUBSCRIPTION_ID="${SUBSCRIPTION_ID:-}"
+ENV_RESOURCE_GROUP="${RESOURCE_GROUP:-}"
+ENV_WORKSPACE_NAME="${WORKSPACE_NAME:-}"
+ENV_LOCATION="${LOCATION:-}"
+ENV_INCLUDE_APT_BLOCK_HASH="${INCLUDE_APT_BLOCK_HASH:-}"
+ENV_CUSTOM_COLLECTION_IDS="${CUSTOM_COLLECTION_IDS:-}"
+ENV_CUSTOM_COLLECTION_NAMES="${CUSTOM_COLLECTION_NAMES:-}"
+ENV_POLLING_INTERVAL_MINUTES="${POLLING_INTERVAL_MINUTES:-}"
+ENV_ENABLE_FEEDS_TABLE="${ENABLE_FEEDS_TABLE:-}"
+ENV_ENABLE_AUDIT_LOGGING="${ENABLE_AUDIT_LOGGING:-}"
+ENV_ENABLE_WORKBOOK="${ENABLE_WORKBOOK:-}"
 
 # Load .env (SOCRadar credentials)
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -16,6 +29,19 @@ fi
 if [ -f "$SCRIPT_DIR/test.config" ]; then
     source "$SCRIPT_DIR/test.config"
 fi
+
+SOCRADAR_API_KEY="${ENV_SOCRADAR_API_KEY:-${SOCRADAR_API_KEY:-}}"
+SUBSCRIPTION_ID="${ENV_SUBSCRIPTION_ID:-${SUBSCRIPTION_ID:-}}"
+RESOURCE_GROUP="${ENV_RESOURCE_GROUP:-${RESOURCE_GROUP:-}}"
+WORKSPACE_NAME="${ENV_WORKSPACE_NAME:-${WORKSPACE_NAME:-}}"
+LOCATION="${ENV_LOCATION:-${LOCATION:-northeurope}}"
+INCLUDE_APT_BLOCK_HASH="${ENV_INCLUDE_APT_BLOCK_HASH:-${INCLUDE_APT_BLOCK_HASH:-true}}"
+CUSTOM_COLLECTION_IDS="${ENV_CUSTOM_COLLECTION_IDS:-${CUSTOM_COLLECTION_IDS:-}}"
+CUSTOM_COLLECTION_NAMES="${ENV_CUSTOM_COLLECTION_NAMES:-${CUSTOM_COLLECTION_NAMES:-}}"
+POLLING_INTERVAL_MINUTES="${ENV_POLLING_INTERVAL_MINUTES:-${POLLING_INTERVAL_MINUTES:-60}}"
+ENABLE_FEEDS_TABLE="${ENV_ENABLE_FEEDS_TABLE:-${ENABLE_FEEDS_TABLE:-true}}"
+ENABLE_AUDIT_LOGGING="${ENV_ENABLE_AUDIT_LOGGING:-${ENABLE_AUDIT_LOGGING:-true}}"
+ENABLE_WORKBOOK="${ENV_ENABLE_WORKBOOK:-${ENABLE_WORKBOOK:-true}}"
 
 # Validate required vars
 if [ -z "$SOCRADAR_API_KEY" ]; then
@@ -39,11 +65,11 @@ echo ""
 echo "Configuration:"
 echo "  Resource Group:     $RESOURCE_GROUP"
 echo "  Workspace:          $WORKSPACE_NAME"
-echo "  Location:           ${LOCATION:-northeurope}"
-echo "  Polling:            ${POLLING_INTERVAL_MINUTES:-60} min"
-echo "  APT Block Hash:     ${INCLUDE_APT_BLOCK_HASH:-true}"
-echo "  Feeds Table:        ${ENABLE_FEEDS_TABLE:-true}"
-echo "  Audit Logging:      ${ENABLE_AUDIT_LOGGING:-true}"
+echo "  Location:           $LOCATION"
+echo "  Polling:            $POLLING_INTERVAL_MINUTES min"
+echo "  APT Block Hash:     $INCLUDE_APT_BLOCK_HASH"
+echo "  Feeds Table:        $ENABLE_FEEDS_TABLE"
+echo "  Audit Logging:      $ENABLE_AUDIT_LOGGING"
 echo ""
 
 # Check login
@@ -62,15 +88,15 @@ az deployment group create \
     --template-file "$TEMPLATE" \
     --parameters \
         WorkspaceName="$WORKSPACE_NAME" \
-        WorkspaceLocation="${LOCATION:-northeurope}" \
+        WorkspaceLocation="$LOCATION" \
         SocradarApiKey="$SOCRADAR_API_KEY" \
-        IncludeAPTBlockHash="${INCLUDE_APT_BLOCK_HASH:-true}" \
-        CustomCollectionIds="${CUSTOM_COLLECTION_IDS:-}" \
-        CustomCollectionNames="${CUSTOM_COLLECTION_NAMES:-}" \
-        PollingIntervalMinutes="${POLLING_INTERVAL_MINUTES:-60}" \
-        EnableFeedsTable="${ENABLE_FEEDS_TABLE:-true}" \
-        EnableAuditLogging="${ENABLE_AUDIT_LOGGING:-true}" \
-        EnableWorkbook="${ENABLE_WORKBOOK:-true}" \
+        IncludeAPTBlockHash="$INCLUDE_APT_BLOCK_HASH" \
+        CustomCollectionIds="$CUSTOM_COLLECTION_IDS" \
+        CustomCollectionNames="$CUSTOM_COLLECTION_NAMES" \
+        PollingIntervalMinutes="$POLLING_INTERVAL_MINUTES" \
+        EnableFeedsTable="$ENABLE_FEEDS_TABLE" \
+        EnableAuditLogging="$ENABLE_AUDIT_LOGGING" \
+        EnableWorkbook="$ENABLE_WORKBOOK" \
     -o table
 
 # Get Function App name from deployment output
