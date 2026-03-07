@@ -2,94 +2,69 @@
 
 Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentinel TI.
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Azure-Feeds%2Ffunction%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Azure-Feeds%2Fmaster%2Fazuredeploy.json)
 
-UI deployment uses Azure source control integration from the `function` branch and
-builds the `FunctionApp/` project on Azure with Oryx.
+## Deployment
+
+### Step 1: Deploy Infrastructure
+
+Click the **Deploy to Azure** button above. Fill in the parameters and click **Create**.
+
+### Step 2: Deploy Function Code
+
+After the ARM template completes, deploy the function code:
+
+```bash
+git clone https://github.com/orcunsami/SOCRadar-Azure-Feeds.git
+cd SOCRadar-Azure-Feeds/FunctionApp
+zip -r /tmp/deploy.zip . --exclude "__pycache__/*" "*.pyc"
+az functionapp deployment source config-zip -g <RESOURCE_GROUP> -n <FUNCTION_APP_NAME> --src /tmp/deploy.zip --build-remote true
+```
+
+The function app name is shown in the deployment outputs.
 
 ## Prerequisites
 
 - Microsoft Sentinel workspace
 - SOCRadar Platform API Key
 
-## Configuration
-
-### Required Parameters
-
-| Parameter | Description |
-|-----------|-------------|
-| `WorkspaceName` | Your Sentinel workspace name (e.g., `my-sentinel-workspace`, NOT the Workspace ID/GUID) |
-| `WorkspaceLocation` | Region of your workspace (e.g., `centralus`, `northeurope`) |
-| `SocradarApiKey` | Your SOCRadar Platform API key |
-
-### Recommended Feed Collections
-
-Each collection can be individually enabled/disabled during deployment (all enabled by default):
-
-| Parameter | Default | Feed Collection |
-|-----------|---------|-----------------|
-| `IncludeAPTBlockHash` | **true** | SOCRadar APT Recommended Block Hash |
-| `IncludeAPTBlockIP` | false | SOCRadar APT Recommended Block IP |
-| `IncludeAPTBlockDomain` | false | SOCRadar APT Recommended Block Domain |
-| `IncludeBlockHash` | false | SOCRadar Recommended Block Hash |
-| `IncludeAttackersBlockIP` | false | SOCRadar Attackers Recommended Block IP |
-| `IncludeAttackersBlockDomain` | false | SOCRadar Attackers Recommended Block Domain |
-| `IncludePhishingGlobal` | false | SOCRadar Recommended Phishing Global |
-
-### Other Optional Parameters
+## Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
+| `WorkspaceName` | - | Sentinel workspace name |
+| `WorkspaceLocation` | RG location | Region of the workspace |
+| `SocradarApiKey` | - | SOCRadar Platform API key |
+| `IncludeAPTBlockHash` | true | Include APT Recommended Block Hash feed (~500 indicators) |
 | `CustomCollectionIds` | "" | Comma-separated custom feed collection UUIDs |
-| `CustomCollectionNames` | "" | Comma-separated custom collection names (matching IDs order) |
-| `PollingIntervalMinutes` | 60 | How often to poll feeds (5-1440 minutes) |
-| `EnableFeedsTable` | true | Store indicators in SOCRadar_Feeds_CL custom table |
+| `CustomCollectionNames` | "" | Comma-separated custom collection names |
+| `PollingIntervalMinutes` | 60 | Polling interval (5-1440 minutes) |
+| `EnableFeedsTable` | true | Store indicators in SOCRadar_Feeds_CL |
 | `EnableAuditLogging` | true | Log operations to SOCRadar_Feeds_Audit_CL |
-| `EnableWorkbook` | true | Deploy SOCRadar Threat Feeds Analytics Dashboard |
+| `EnableWorkbook` | true | Deploy analytics dashboard |
 
 ## What Gets Deployed
 
-- **SOCRadar-Feeds-Import** - Azure Function App that polls SOCRadar feeds and imports indicators as TI
-- **Storage Account** - Checkpoint state for deduplication
-- **Sentinel TI Indicators** - Imported as TiIndicators in your workspace
-- **SOCRadar_Feeds_CL** - Custom table for indicator analytics (if EnableFeedsTable=true)
-- **SOCRadar_Feeds_Audit_CL** - Audit log table (if EnableAuditLogging=true)
-- **SOCRadar Threat Feeds Dashboard** - Workbook with indicator charts and audit monitoring (if EnableWorkbook=true)
+- Azure Function App (Python 3.11, Consumption plan)
+- Storage Account with checkpoint table for deduplication
+- Sentinel TI indicators via batch upload API
+- SOCRadar_Feeds_CL custom table (optional)
+- SOCRadar_Feeds_Audit_CL audit table (optional)
+- SOCRadar Threat Feeds Dashboard workbook (optional)
 
-## Key Features
+## Indicator Types
 
-- 7 recommended threat feed collections (individually selectable)
-- Custom feed collections (indicator type auto-detected from feed data)
-- STIX 2.1 pattern generation for Sentinel TI ingestion
-- Hash type auto-detection: MD5 (32), SHA-1 (40), SHA-256 (64 chars)
-- Dynamic threat type classification per collection (Phishing, Malicious-Activity, Malware)
-- ValidUntil scheduling (90 days from last seen date)
-- Checkpoint-based deduplication to prevent duplicate imports
-- Optional audit logging to Log Analytics
-
-## Indicator Types Supported
-
-| STIX Type | Pattern Example | Auto-detected From |
-|-----------|-----------------|-------------------|
+| Type | Pattern | Auto-detected From |
+|------|---------|-------------------|
 | IP | `[ipv4-addr:value = '1.2.3.4']` | ip type feeds |
 | Domain | `[domain-name:value = 'evil.com']` | domain type feeds |
 | URL | `[url:value = 'http://...']` | url type feeds |
-| Hash (MD5) | `[file:hashes.MD5 = '...']` | 32-char hash |
-| Hash (SHA-1) | `[file:hashes.'SHA-1' = '...']` | 40-char hash |
-| Hash (SHA-256) | `[file:hashes.'SHA-256' = '...']` | 64-char hash |
+| Hash (MD5/SHA-1/SHA-256) | `[file:hashes.MD5 = '...']` | 32/40/64-char hash |
 | Email | `[email-addr:value = '...']` | email type feeds |
 
 ## Post-Deployment
 
-Function App runs on a timer trigger based on the configured polling interval.
-
-No manual action required - it will start automatically.
-
-## About SOCRadar
-
-SOCRadar is an Extended Threat Intelligence (XTI) platform.
-
-Learn more at [socradar.io](https://socradar.io)
+The function runs automatically on the configured polling interval. First run imports all indicators, subsequent runs only import new ones (checkpoint-based deduplication).
 
 ## Support
 
