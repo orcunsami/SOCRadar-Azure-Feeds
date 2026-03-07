@@ -81,9 +81,9 @@
         },
         "EnableSourceControlIntegration": {
             "type": "bool",
-            "defaultValue": false,
+            "defaultValue": true,
             "metadata": {
-                "description": "Configure Deployment Center source control during ARM deployment"
+                "description": "Deploy function code from GitHub repository via Deployment Center"
             }
         }
     },
