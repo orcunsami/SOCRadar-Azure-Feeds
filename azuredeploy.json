@@ -78,13 +78,6 @@
             "metadata": {
                 "description": "Deploy SOCRadar Threat Feeds Analytics Dashboard workbook"
             }
-        },
-        "EnableSourceControlIntegration": {
-            "type": "bool",
-            "defaultValue": true,
-            "metadata": {
-                "description": "Deploy function code from GitHub repository via Deployment Center"
-            }
         }
     },
     "variables": {
@@ -398,10 +391,6 @@
                             "value": "true"
                         },
                         {
-                            "name": "PROJECT",
-                            "value": "FunctionApp"
-                        },
-                        {
                             "name": "POLLING_SCHEDULE",
                             "value": "[variables('pollingSchedule')]"
                         },
@@ -535,20 +524,6 @@
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
                 "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-12-01', 'Full').identity.principalId]",
                 "principalType": "ServicePrincipal"
-            }
-        },
-        {
-            "condition": "[parameters('EnableSourceControlIntegration')]",
-            "type": "Microsoft.Web/sites/sourcecontrols",
-            "apiVersion": "2023-12-01",
-            "name": "[concat(variables('functionAppName'), '/web')]",
-            "dependsOn": [
-                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
-            ],
-            "properties": {
-                "repoUrl": "https://github.com/orcunsami/SOCRadar-Azure-Feeds.git",
-                "branch": "function",
-                "isManualIntegration": true
             }
         },
         {
