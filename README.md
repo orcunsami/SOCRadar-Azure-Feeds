@@ -2,26 +2,11 @@
 
 Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentinel TI.
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Azure-Feeds%2Fmaster%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Azure-Feeds%2Ffunction%2Fazuredeploy.json)
 
 ## Deployment
 
-### Step 1: Deploy Infrastructure
-
-Click the **Deploy to Azure** button above. Fill in the parameters and click **Create**.
-
-### Step 2: Deploy Function Code
-
-After the ARM template completes, deploy the function code:
-
-```bash
-git clone https://github.com/orcunsami/SOCRadar-Azure-Feeds.git
-cd SOCRadar-Azure-Feeds/FunctionApp
-zip -r /tmp/deploy.zip . --exclude "__pycache__/*" "*.pyc"
-az functionapp deployment source config-zip -g <RESOURCE_GROUP> -n <FUNCTION_APP_NAME> --src /tmp/deploy.zip --build-remote true
-```
-
-The function app name is shown in the deployment outputs.
+Click the **Deploy to Azure** button above. Fill in the parameters and click **Create**. The function app and code are deployed automatically.
 
 ## Prerequisites
 
