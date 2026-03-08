@@ -4,9 +4,9 @@
     "metadata": {
         "title": "SOCRadar Threat Feeds for Microsoft Sentinel",
         "description": "Imports threat intelligence indicators from SOCRadar feed API into Microsoft Sentinel using Azure Functions. Supports IP, domain, URL, hash (MD5/SHA-1/SHA-256), and email indicators with batch upload, checkpoint-based deduplication, and optional custom table logging.",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "author": "SOCRadar",
-        "lastUpdateTime": "2026-03-03T00:00:00.000Z"
+        "lastUpdateTime": "2026-03-09T00:00:00.000Z"
     },
     "parameters": {
         "WorkspaceName": {
