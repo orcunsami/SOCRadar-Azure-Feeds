@@ -82,6 +82,7 @@
     },
     "variables": {
         "functionAppName": "[concat('socradar-feeds-', uniqueString(resourceGroup().id))]",
+        "managedIdentityName": "SOCRadar-Feeds-MI",
         "hostingPlanName": "SOCRadar-Feeds-Plan",
         "storageAccountName": "[take(concat('srfeeds', uniqueString(resourceGroup().id)), 24)]",
         "tableName": "FeedState",
@@ -323,6 +324,12 @@
             }
         },
         {
+            "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+            "apiVersion": "2023-01-31",
+            "name": "[variables('managedIdentityName')]",
+            "location": "[resourceGroup().location]"
+        },
+        {
             "type": "Microsoft.Web/serverfarms",
             "apiVersion": "2023-12-01",
             "name": "[variables('hostingPlanName')]",
@@ -342,8 +349,14 @@
             "name": "[variables('functionAppName')]",
             "location": "[resourceGroup().location]",
             "kind": "functionapp,linux",
-            "identity": { "type": "SystemAssigned" },
+            "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                    "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]": {}
+                }
+            },
             "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
                 "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
                 "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
@@ -385,6 +398,10 @@
                         {
                             "name": "WEBSITE_RUN_FROM_PACKAGE",
                             "value": "https://github.com/orcunsami/SOCRadar-Azure-Feeds/releases/download/v1.0.0/FunctionApp.zip"
+                        },
+                        {
+                            "name": "AZURE_CLIENT_ID",
+                            "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').clientId]"
                         },
                         {
                             "name": "POLLING_SCHEDULE",
@@ -465,28 +482,28 @@
         {
             "type": "Microsoft.Authorization/roleAssignments",
             "apiVersion": "2022-04-01",
-            "name": "[guid(resourceGroup().id, variables('functionAppName'), variables('SentinelContributorRoleId'))]",
+            "name": "[guid(resourceGroup().id, variables('managedIdentityName'), variables('SentinelContributorRoleId'))]",
             "dependsOn": [
-                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]"
             ],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('SentinelContributorRoleId'))]",
-                "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-12-01', 'Full').identity.principalId]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
                 "principalType": "ServicePrincipal"
             }
         },
         {
             "type": "Microsoft.Authorization/roleAssignments",
             "apiVersion": "2022-04-01",
-            "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), variables('functionAppName'), variables('StorageTableDataContributorRoleId'))]",
+            "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), variables('managedIdentityName'), variables('StorageTableDataContributorRoleId'))]",
             "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
             "dependsOn": [
-                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
             ],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('StorageTableDataContributorRoleId'))]",
-                "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-12-01', 'Full').identity.principalId]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
                 "principalType": "ServicePrincipal"
             }
         },
@@ -494,15 +511,15 @@
             "condition": "[parameters('EnableFeedsTable')]",
             "type": "Microsoft.Authorization/roleAssignments",
             "apiVersion": "2022-04-01",
-            "name": "[guid(resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName')), variables('functionAppName'), variables('MonitoringMetricsPublisherRoleId'))]",
+            "name": "[guid(resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName')), variables('managedIdentityName'), variables('MonitoringMetricsPublisherRoleId'))]",
             "scope": "[resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName'))]",
             "dependsOn": [
-                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
                 "[resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName'))]"
             ],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
-                "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-12-01', 'Full').identity.principalId]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
                 "principalType": "ServicePrincipal"
             }
         },
@@ -510,15 +527,15 @@
             "condition": "[parameters('EnableAuditLogging')]",
             "type": "Microsoft.Authorization/roleAssignments",
             "apiVersion": "2022-04-01",
-            "name": "[guid(resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName')), variables('functionAppName'), variables('MonitoringMetricsPublisherRoleId'))]",
+            "name": "[guid(resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName')), variables('managedIdentityName'), variables('MonitoringMetricsPublisherRoleId'))]",
             "scope": "[resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName'))]",
             "dependsOn": [
-                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
                 "[resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName'))]"
             ],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
-                "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-12-01', 'Full').identity.principalId]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
                 "principalType": "ServicePrincipal"
             }
         },
