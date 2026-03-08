@@ -383,12 +383,8 @@
                             "value": "EnableWorkerIndexing"
                         },
                         {
-                            "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
-                            "value": "true"
-                        },
-                        {
-                            "name": "ENABLE_ORYX_BUILD",
-                            "value": "true"
+                            "name": "WEBSITE_RUN_FROM_PACKAGE",
+                            "value": "https://github.com/orcunsami/SOCRadar-Azure-Feeds/releases/download/v1.0.0/FunctionApp.zip"
                         },
                         {
                             "name": "POLLING_SCHEDULE",
