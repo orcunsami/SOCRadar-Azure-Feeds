@@ -42,15 +42,17 @@ az deployment group create \
 ## What Gets Deployed
 
 - **Azure Function App** (Python 3.11, Consumption plan) - Polls SOCRadar feeds on schedule
-- **User-Assigned Managed Identity** - Secure access to Sentinel and Storage
+- **Application Insights** - Monitoring with step-by-step logging (workspace-based, 30 day retention)
+- **User-Assigned Managed Identity** - Secure access to Microsoft Sentinel and Storage
 - **Storage Account** - Checkpoint table for deduplication
 - **DCE + DCR + Custom Tables** (optional) - SOCRadar_Feeds_CL and audit logging
 - **Workbook** (optional) - SOCRadar Threat Feeds Dashboard
+- **Deployment Script** - Automatically triggers first import after deployment
 
 ## Key Features
 
 - STIX 2.1 indicator building (IP, domain, URL, file hash, email)
-- Batch upload to Sentinel TI (100 indicators/batch)
+- Batch upload to Microsoft Sentinel TI (100 indicators/batch)
 - Checkpoint-based deduplication (only new indicators on each run)
 - Custom collection support via SOCRadar API
 - Managed Identity authentication (no stored credentials for Azure)
@@ -67,7 +69,9 @@ az deployment group create \
 
 ## Post-Deployment
 
-Function polls on the configured schedule. First run imports all available indicators. Subsequent runs only import new ones (checkpoint-based deduplication).
+The function automatically runs after deployment via a deployment script. Check Application Insights for step-by-step execution logs and the Function App Invocations tab for status.
+
+Subsequent runs poll on the configured schedule. Only new indicators are imported (checkpoint-based deduplication).
 
 ## About SOCRadar
 
