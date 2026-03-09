@@ -21,25 +21,30 @@ logger = logging.getLogger(__name__)
 )
 def socradar_feeds_import(timer: func.TimerRequest) -> None:
     start_time = time.time()
-    logger.info("SOCRadar Feeds Import started")
+    logger.info("=== SOCRadar Feeds Import started ===")
 
     if timer.past_due:
         logger.warning("Timer is past due, running anyway")
 
     processor = None
     try:
+        logger.info("Step 1: Initializing processor from environment")
         processor = FeedsProcessor.from_env()
+        logger.info("Step 1: Done - %d collections configured", len(processor.collections))
+
+        logger.info("Step 2: Running feed import")
         result = processor.run()
 
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.info(
-            "Completed: %d collections, %d created, %d skipped, %dms",
+            "Step 3: Import complete - %d collections, %d created, %d skipped, %dms",
             result["collections_processed"],
             result["indicators_created"],
             result["indicators_skipped"],
             elapsed_ms,
         )
 
+        logger.info("Step 4: Sending audit log")
         processor.log_audit(
             collections_processed=result["collections_processed"],
             indicators_created=result["indicators_created"],
@@ -48,10 +53,12 @@ def socradar_feeds_import(timer: func.TimerRequest) -> None:
             status="Success",
             error_message="",
         )
+        logger.info("Step 4: Done")
+        logger.info("=== SOCRadar Feeds Import finished successfully (%dms) ===", elapsed_ms)
 
     except Exception as e:
         elapsed_ms = int((time.time() - start_time) * 1000)
-        logger.error("Feed import failed: %s", e)
+        logger.error("=== SOCRadar Feeds Import FAILED after %dms: %s ===", elapsed_ms, e)
         if processor:
             try:
                 processor.log_audit(

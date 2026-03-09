@@ -66,6 +66,7 @@ class FeedsProcessor:
             if os.environ.get(env_key, "false").lower() == "true":
                 collections.append({"id": cid, "name": cname})
                 seen_collection_ids.add(cid)
+                logger.info("  Recommended collection enabled: %s", cname)
 
         custom_ids = os.environ.get("CUSTOM_COLLECTION_IDS", "").strip()
         custom_names = os.environ.get("CUSTOM_COLLECTION_NAMES", "").strip()
@@ -79,6 +80,10 @@ class FeedsProcessor:
                 name = names[i] if i < len(names) else f"Custom-Feed-{i + 1}"
                 collections.append({"id": cid, "name": name})
                 seen_collection_ids.add(cid)
+                logger.info("  Custom collection added: %s (%s)", name, cid[:8])
+
+        if not collections:
+            logger.warning("  No collections configured!")
 
         return cls({
             "socradar_api_key": os.environ["SOCRADAR_API_KEY"],
@@ -185,23 +190,31 @@ class FeedsProcessor:
             logger.warning("No collections configured")
             return {"collections_processed": 0, "indicators_created": 0, "indicators_skipped": 0}
 
-        for col in self.collections:
+        total_collections = len(self.collections)
+        for idx, col in enumerate(self.collections, 1):
             try:
-                logger.info("Processing: %s", col["name"])
+                logger.info("Step 2.1: [%d/%d] Processing collection: %s", idx, total_collections, col["name"])
 
+                logger.info("Step 2.2: [%s] Fetching feed from SOCRadar API", col["name"])
                 items = self.fetch_feed(col["id"])
-                logger.info("  Fetched %d indicators", len(items))
+                logger.info("Step 2.3: [%s] Fetched %d indicators", col["name"], len(items))
 
                 checkpoint = self.get_checkpoint(col["id"])
+                is_first_run = checkpoint == "1970-01-01T00:00:00Z"
+                logger.info("Step 2.4: [%s] Checkpoint: %s%s", col["name"], checkpoint,
+                            " (first run)" if is_first_run else "")
+
                 new_items = self.filter_new_indicators(items, checkpoint)
-                logger.info("  %d new (checkpoint: %s)", len(new_items), checkpoint)
+                logger.info("Step 2.5: [%s] Filtered: %d new from %d total", col["name"], len(new_items), len(items))
 
                 if not new_items:
+                    logger.info("Step 2.5: [%s] No new indicators, saving checkpoint", col["name"])
                     self.save_checkpoint(col["id"], col["name"], len(items), 0)
                     collections_processed += 1
                     continue
 
                 # Build STIX indicators
+                logger.info("Step 2.6: [%s] Building STIX indicators", col["name"])
                 stix_indicators = []
                 feed_logs = []
                 for item in new_items:
@@ -210,31 +223,41 @@ class FeedsProcessor:
                         stix_indicators.append(indicator)
                         if self.enable_feeds_table:
                             feed_logs.append(StixBuilder.build_feed_log(item, col))
+                logger.info("Step 2.6: [%s] Built %d STIX indicators", col["name"], len(stix_indicators))
 
                 # Batch upload to Sentinel TI
                 col_created = 0
                 col_skipped = 0
+                total_batches = (len(stix_indicators) + BATCH_SIZE - 1) // BATCH_SIZE
                 for i in range(0, len(stix_indicators), BATCH_SIZE):
                     batch = stix_indicators[i:i + BATCH_SIZE]
+                    batch_num = (i // BATCH_SIZE) + 1
+                    logger.info("Step 2.7: [%s] Uploading batch %d/%d (%d indicators)",
+                                col["name"], batch_num, total_batches, len(batch))
                     created, skipped = self.upload_batch(batch)
                     col_created += created
                     col_skipped += skipped
+                    logger.info("Step 2.7: [%s] Batch %d result: %d created, %d skipped",
+                                col["name"], batch_num, created, skipped)
 
                 total_created += col_created
                 total_skipped += col_skipped
+                logger.info("Step 2.8: [%s] Upload complete: %d created, %d skipped",
+                            col["name"], col_created, col_skipped)
 
                 # Log to feeds table
                 if self.enable_feeds_table and feed_logs and self.dcr_logger:
+                    logger.info("Step 2.9: [%s] Logging %d records to feeds table", col["name"], len(feed_logs))
                     self.dcr_logger.log_feeds(feed_logs)
 
                 self.save_checkpoint(col["id"], col["name"], len(items), len(new_items))
                 collections_processed += 1
-                logger.info("  Done: %d created, %d skipped", col_created, col_skipped)
+                logger.info("Step 2.10: [%s] Checkpoint saved, collection done", col["name"])
 
             except Exception as e:
                 message = f"{col['name']} ({col['id']}): {e}"
                 collection_errors.append(message)
-                logger.exception("  Error processing %s", message)
+                logger.exception("  ERROR processing %s", message)
 
         if collection_errors:
             logger.error("Collection failures: %s", " | ".join(collection_errors))
