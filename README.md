@@ -69,9 +69,24 @@ az deployment group create \
 
 ## Post-Deployment
 
-The function automatically runs after deployment via a deployment script. Check Application Insights for step-by-step execution logs and the Function App Invocations tab for status.
+The function automatically runs after deployment via a deployment script. Subsequent runs poll on the configured schedule. Only new indicators are imported (checkpoint-based deduplication).
 
-Subsequent runs poll on the configured schedule. Only new indicators are imported (checkpoint-based deduplication).
+### Monitoring Logs
+
+To view real-time execution logs:
+
+1. Go to your **Function App** in Azure Portal
+2. Navigate to **Monitoring > Log stream** for real-time logs
+3. Or go to **Application Insights > Logs** and run:
+
+```kql
+traces
+| where timestamp > ago(1h)
+| where message has "Step"
+| order by timestamp desc
+```
+
+Each run logs step-by-step progress (Step 1: init, Step 2: fetch feeds, Step 3: complete, Step 4: audit).
 
 ## About SOCRadar
 
