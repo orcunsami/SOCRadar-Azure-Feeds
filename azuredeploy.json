@@ -82,6 +82,7 @@
     },
     "variables": {
         "functionAppName": "[concat('socradar-feeds-', uniqueString(resourceGroup().id))]",
+        "appInsightsName": "[concat('socradar-feeds-ai-', uniqueString(resourceGroup().id))]",
         "managedIdentityName": "SOCRadar-Feeds-MI",
         "hostingPlanName": "SOCRadar-Feeds-Plan",
         "storageAccountName": "[take(concat('srfeeds', uniqueString(resourceGroup().id)), 24)]",
@@ -344,6 +345,21 @@
             }
         },
         {
+            "type": "Microsoft.Insights/components",
+            "apiVersion": "2020-02-02",
+            "name": "[variables('appInsightsName')]",
+            "location": "[resourceGroup().location]",
+            "kind": "web",
+            "dependsOn": [
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]"
+            ],
+            "properties": {
+                "Application_Type": "web",
+                "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
+                "RetentionInDays": 30
+            }
+        },
+        {
             "type": "Microsoft.Web/sites",
             "apiVersion": "2023-12-01",
             "name": "[variables('functionAppName')]",
@@ -363,7 +379,8 @@
                 "[resourceId('Microsoft.Storage/storageAccounts/tableServices/tables', variables('storageAccountName'), 'default', variables('tableName'))]",
                 "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName'))]",
                 "[resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName'))]",
-                "[resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName'))]"
+                "[resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName'))]",
+                "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]"
             ],
             "properties": {
                 "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
@@ -394,6 +411,10 @@
                         {
                             "name": "AzureWebJobsFeatureFlags",
                             "value": "EnableWorkerIndexing"
+                        },
+                        {
+                            "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                            "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
                         },
                         {
                             "name": "WEBSITE_RUN_FROM_PACKAGE",

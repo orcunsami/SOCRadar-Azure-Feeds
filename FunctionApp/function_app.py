@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 @app.timer_trigger(
     schedule="%POLLING_SCHEDULE%",
     arg_name="timer",
-    run_on_startup=False
+    run_on_startup=True
 )
 def socradar_feeds_import(timer: func.TimerRequest) -> None:
     start_time = time.time()
