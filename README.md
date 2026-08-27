@@ -29,6 +29,7 @@ az deployment group create \
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
 | `WorkspaceName` | Yes | - | Microsoft Sentinel workspace name |
+| `DeployNewWorkspace` | No | `false` | Create `WorkspaceName` instead of using an existing one. Set `true` for a greenfield deploy into an empty resource group; leave `false` to attach to your existing workspace without touching its pricing tier, retention or daily cap. |
 | `WorkspaceLocation` | No | RG location | Region of the workspace |
 | `SocradarApiKey` | Yes | - | SOCRadar Platform API key |
 | `IncludeAPTBlockHash` | No | true | Include APT Recommended Block Hash feed (~500 indicators) |
@@ -38,6 +39,25 @@ az deployment group create \
 | `EnableFeedsTable` | No | true | Store indicators in SOCRadar_Feeds_CL |
 | `EnableAuditLogging` | No | true | Log operations to SOCRadar_Feeds_Audit_CL |
 | `EnableWorkbook` | No | true | Deploy analytics dashboard |
+
+## Existing installations
+
+Deployments made before `DeployNewWorkspace` existed stated a pricing tier on the workspace
+resource, and a template overwrites every field it states. If the target workspace was on a
+**commitment tier**, redeploying reset it to `PerGB2018` (pay-as-you-go).
+
+Check the current tier:
+
+```bash
+az monitor log-analytics workspace show -g <resource-group> -n <workspace> \
+  --query "{sku:sku.name, lastSkuUpdate:sku.lastSkuUpdate}" -o json
+```
+
+If `lastSkuUpdate` lines up with when you deployed this integration and the tier isn't the one
+you picked, reset your commitment tier from **Log Analytics workspaces > Usage and estimated
+costs > Pricing tier**. The current template states no workspace-level settings at all, so
+redeploying -- even with `DeployNewWorkspace=true` set by mistake -- cannot change its pricing
+tier, retention or daily cap.
 
 ## What Gets Deployed
 
