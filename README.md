@@ -91,6 +91,20 @@ tier, retention or daily cap.
 
 The function automatically runs after deployment via a deployment script. Subsequent runs poll on the configured schedule. Only new indicators are imported (checkpoint-based deduplication).
 
+### Managing Collections
+
+To add or remove feed collections after deployment:
+
+1. Go to your **Function App** in Azure Portal
+2. Click **Configuration** under Settings
+3. Edit the relevant **Application Settings**:
+   - `CUSTOM_COLLECTION_IDS` — comma-separated collection UUIDs
+   - `CUSTOM_COLLECTION_NAMES` — comma-separated names (same order as IDs)
+   - `INCLUDE_0cb06558728b4dc296019c93b78360d1` — set to `True` or `False` to enable/disable the APT Block Hash feed
+4. Click **Save** — the Function App restarts automatically
+
+New collections start from the configured lookback window. Removed collections leave harmless orphan checkpoints in Table Storage.
+
 ### Monitoring Logs
 
 To view real-time execution logs:
