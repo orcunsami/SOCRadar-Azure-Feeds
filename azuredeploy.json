@@ -6,7 +6,7 @@
         "description": "Imports threat intelligence indicators from SOCRadar feed API into Microsoft Sentinel using Azure Functions. Supports IP, domain, URL, hash (MD5/SHA-1/SHA-256), and email indicators with batch upload, checkpoint-based deduplication, and optional custom table logging.",
         "version": "2.1.0",
         "author": "SOCRadar",
-        "lastUpdateTime": "2026-03-09T00:00:00.000Z"
+        "lastUpdateTime": "2026-09-06T00:00:00.000Z"
     },
     "parameters": {
         "WorkspaceName": {
@@ -56,13 +56,22 @@
                 "description": "Comma-separated custom collection names (matching IDs order)"
             }
         },
+        "InitialLookbackDays": {
+            "type": "int",
+            "defaultValue": 30,
+            "minValue": 0,
+            "maxValue": 3650,
+            "metadata": {
+                "description": "On the first run of a collection, send only indicators last seen within this many days. 0 sends the whole feed."
+            }
+        },
         "PollingIntervalMinutes": {
             "type": "int",
             "defaultValue": 60,
             "minValue": 5,
             "maxValue": 1440,
             "metadata": {
-                "description": "How often to poll SOCRadar feeds (5-1440 minutes)"
+                "description": "How often to poll SOCRadar feeds (5-1440 minutes). Values of 60 or more are rounded down to whole hours."
             }
         },
         "EnableFeedsTable": {
@@ -84,6 +93,13 @@
             "defaultValue": true,
             "metadata": {
                 "description": "Deploy SOCRadar Threat Feeds Analytics Dashboard workbook"
+            }
+        },
+        "PackageUri": {
+            "type": "string",
+            "defaultValue": "https://github.com/orcunsami/SOCRadar-Azure-Feeds/releases/download/v1.0.0/FunctionApp.zip",
+            "metadata": {
+                "description": "URL of the Function App package. Leave the default unless you host the package yourself."
             }
         }
     },
@@ -155,7 +171,8 @@
             "kind": "StorageV2",
             "properties": {
                 "supportsHttpsTrafficOnly": true,
-                "minimumTlsVersion": "TLS1_2"
+                "minimumTlsVersion": "TLS1_2",
+                "allowBlobPublicAccess": false
             }
         },
         {
@@ -272,11 +289,13 @@
                     "name": "[variables('AuditTableName')]",
                     "columns": [
                         { "name": "TimeGenerated", "type": "datetime", "description": "Event timestamp" },
-                        { "name": "CollectionsProcessed", "type": "int", "description": "Number of collections processed" },
+                        { "name": "CollectionsProcessed", "type": "int", "description": "Collections delivered completely" },
+                        { "name": "CollectionsFailed", "type": "int", "description": "Collections that failed or lost indicators" },
                         { "name": "IndicatorsCreated", "type": "int", "description": "Indicators successfully uploaded" },
-                        { "name": "IndicatorsSkipped", "type": "int", "description": "Indicators skipped" },
+                        { "name": "IndicatorsSkipped", "type": "int", "description": "Indicators Microsoft Sentinel received and rejected" },
+                        { "name": "IndicatorsFailed", "type": "int", "description": "Indicators that never reached Microsoft Sentinel and will be sent again" },
                         { "name": "DurationMs", "type": "int", "description": "Run duration in milliseconds" },
-                        { "name": "Status", "type": "string", "description": "Run status (Success, Failed)" },
+                        { "name": "Status", "type": "string", "description": "Run status (Success, PartialSuccess, Failed)" },
                         { "name": "ErrorMessage", "type": "string", "description": "Error details if any" }
                     ]
                 },
@@ -303,8 +322,10 @@
                         "columns": [
                             { "name": "TimeGenerated", "type": "datetime" },
                             { "name": "CollectionsProcessed", "type": "int" },
+                            { "name": "CollectionsFailed", "type": "int" },
                             { "name": "IndicatorsCreated", "type": "int" },
                             { "name": "IndicatorsSkipped", "type": "int" },
+                            { "name": "IndicatorsFailed", "type": "int" },
                             { "name": "DurationMs", "type": "int" },
                             { "name": "Status", "type": "string" },
                             { "name": "ErrorMessage", "type": "string" }
@@ -392,6 +413,8 @@
                 "httpsOnly": true,
                 "siteConfig": {
                     "linuxFxVersion": "Python|3.11",
+                    "ftpsState": "Disabled",
+                    "minTlsVersion": "1.2",
                     "appSettings": [
                         {
                             "name": "AzureWebJobsStorage",
@@ -423,7 +446,7 @@
                         },
                         {
                             "name": "WEBSITE_RUN_FROM_PACKAGE",
-                            "value": "https://github.com/orcunsami/SOCRadar-Azure-Feeds/releases/download/v1.0.0/FunctionApp.zip"
+                            "value": "[parameters('PackageUri')]"
                         },
                         {
                             "name": "AZURE_CLIENT_ID",
@@ -434,6 +457,10 @@
                             "value": "[variables('pollingSchedule')]"
                         },
                         {
+                            "name": "INITIAL_LOOKBACK_DAYS",
+                            "value": "[string(parameters('InitialLookbackDays'))]"
+                        },
+                        {
                             "name": "SOCRADAR_API_KEY",
                             "value": "[parameters('SocradarApiKey')]"
                         },
@@ -441,19 +468,7 @@
                             "name": "WORKSPACE_ID",
                             "value": "[reference(variables('workspaceResourceId'), '2023-09-01').customerId]"
                         },
-                        {
-                            "name": "WORKSPACE_NAME",
-                            "value": "[parameters('WorkspaceName')]"
-                        },
-                        {
-                            "name": "SUBSCRIPTION_ID",
-                            "value": "[subscription().subscriptionId]"
-                        },
-                        {
-                            "name": "RESOURCE_GROUP",
-                            "value": "[resourceGroup().name]"
-                        },
-                        {
+                                                                                                {
                             "name": "STORAGE_ACCOUNT_NAME",
                             "value": "[variables('storageAccountName')]"
                         },
@@ -508,9 +523,11 @@
         {
             "type": "Microsoft.Authorization/roleAssignments",
             "apiVersion": "2022-04-01",
-            "name": "[guid(resourceGroup().id, variables('managedIdentityName'), variables('SentinelContributorRoleId'))]",
+            "name": "[guid(variables('workspaceResourceId'), variables('managedIdentityName'), variables('SentinelContributorRoleId'))]",
+            "scope": "[variables('workspaceResourceId')]",
             "dependsOn": [
-                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]"
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]"
             ],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('SentinelContributorRoleId'))]",
@@ -617,8 +634,8 @@
             "properties": {
                 "azCliVersion": "2.50.0",
                 "retentionInterval": "PT1H",
-                "timeout": "PT5M",
-                "scriptContent": "sleep 30 && az functionapp restart --name $FA_NAME --resource-group $RG_NAME && echo 'Function App restarted, run_on_startup will trigger first import'",
+                "timeout": "PT10M",
+                "scriptContent": "set -e; code=$(curl -s -o /dev/null -w '%{http_code}' -L \"$PACKAGE_URL\"); [ \"$code\" = 200 ] || { echo \"package URL returned HTTP $code\"; exit 1; }; az functionapp restart --name $FA_NAME --resource-group $RG_NAME; for i in $(seq 1 24); do sleep 10; n=$(az rest --method get --url \"https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$RG_NAME/providers/Microsoft.Web/sites/$FA_NAME/functions?api-version=2023-12-01\" --query 'length(value)' -o tsv 2>/dev/null || echo 0); [ \"$n\" -ge 1 ] && { echo \"$n function(s) indexed; run_on_startup triggers the first import\"; exit 0; }; done; echo 'no function was indexed within 4 minutes; the package did not load'; exit 1",
                 "environmentVariables": [
                     {
                         "name": "FA_NAME",
@@ -627,6 +644,14 @@
                     {
                         "name": "RG_NAME",
                         "value": "[resourceGroup().name]"
+                    },
+                    {
+                        "name": "SUB_ID",
+                        "value": "[subscription().subscriptionId]"
+                    },
+                    {
+                        "name": "PACKAGE_URL",
+                        "value": "[parameters('PackageUri')]"
                     }
                 ]
             }
