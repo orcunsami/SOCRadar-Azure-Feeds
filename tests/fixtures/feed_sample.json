@@ -1,0 +1,170 @@
+[
+ {
+  "collection_id": "4d7a69ce6e7c49ff8c916da5d7343916",
+  "collection_name": "SOCRadar-APT-Recommended-Block-IP",
+  "feed": "203.0.113.1",
+  "feed_type": "ip",
+  "latest_seen_date": "2026-02-26 09:45:06",
+  "first_seen_date": "2026-02-26 09:45:06"
+ },
+ {
+  "collection_id": "4d7a69ce6e7c49ff8c916da5d7343916",
+  "collection_name": "SOCRadar-APT-Recommended-Block-IP",
+  "feed": "203.0.113.2",
+  "feed_type": "ip",
+  "latest_seen_date": "2026-02-26 09:45:06",
+  "first_seen_date": "2026-02-26 09:45:06"
+ },
+ {
+  "collection_id": "4d7a69ce6e7c49ff8c916da5d7343916",
+  "collection_name": "SOCRadar-APT-Recommended-Block-IP",
+  "feed": "203.0.113.3",
+  "feed_type": "ip",
+  "latest_seen_date": "2026-02-26 09:45:06",
+  "first_seen_date": "2026-02-26 09:45:06"
+ },
+ {
+  "collection_id": "0cb06558728b4dc296019c93b78360d1",
+  "collection_name": "SOCRadar-APT-Recommended-Block-Hash",
+  "feed": "73014671303fd8235351b0a5e8aa8c6c6d19caf7",
+  "feed_type": "hash",
+  "latest_seen_date": "2026-02-26 17:02:30",
+  "first_seen_date": "2026-02-26 17:02:30"
+ },
+ {
+  "collection_id": "0cb06558728b4dc296019c93b78360d1",
+  "collection_name": "SOCRadar-APT-Recommended-Block-Hash",
+  "feed": "6e16930f100e4505c66e0a47609120d6d2c2c7d5",
+  "feed_type": "hash",
+  "latest_seen_date": "2026-02-26 17:02:30",
+  "first_seen_date": "2026-02-26 17:02:30"
+ },
+ {
+  "collection_id": "0cb06558728b4dc296019c93b78360d1",
+  "collection_name": "SOCRadar-APT-Recommended-Block-Hash",
+  "feed": "d069ad2efe805a0d3b7f993e96ff2585942072e8",
+  "feed_type": "hash",
+  "latest_seen_date": "2026-02-26 17:02:30",
+  "first_seen_date": "2026-02-26 17:02:30"
+ },
+ {
+  "collection_id": "9079dcc2f96e4835bb807026d4cdcc86",
+  "collection_name": "SOCRadar-APT-Recommended-Block-Domain",
+  "feed": "host06.example.invalid",
+  "feed_type": "hostname",
+  "latest_seen_date": "2026-02-22 08:38:40",
+  "first_seen_date": "2026-02-22 08:38:40"
+ },
+ {
+  "collection_id": "9079dcc2f96e4835bb807026d4cdcc86",
+  "collection_name": "SOCRadar-APT-Recommended-Block-Domain",
+  "feed": "host07.example.invalid",
+  "feed_type": "hostname",
+  "latest_seen_date": "2026-02-21 04:29:55",
+  "first_seen_date": "2026-02-21 04:29:55"
+ },
+ {
+  "collection_id": "9079dcc2f96e4835bb807026d4cdcc86",
+  "collection_name": "SOCRadar-APT-Recommended-Block-Domain",
+  "feed": "host08.example.invalid",
+  "feed_type": "hostname",
+  "latest_seen_date": "2026-02-21 04:29:55",
+  "first_seen_date": "2026-02-21 04:29:55"
+ },
+ {
+  "collection_id": "8742cab86cc4414092217f87298e94a1",
+  "collection_name": "SOCRadar-Recommended-Block-Hash",
+  "feed": "1a9f91939ca6c89cce3b04e0f9d58ca8b22c1fa2969ba45c6c80982363d24655",
+  "feed_type": "hash",
+  "latest_seen_date": "2026-02-26 19:51:27",
+  "first_seen_date": "2026-02-26 19:51:27"
+ },
+ {
+  "collection_id": "8742cab86cc4414092217f87298e94a1",
+  "collection_name": "SOCRadar-Recommended-Block-Hash",
+  "feed": "1c0cc9af658a84f25db98e61713a8fa0aae24908d0a4cef2d50f6079d93b5d95",
+  "feed_type": "hash",
+  "latest_seen_date": "2026-02-26 19:51:27",
+  "first_seen_date": "2026-02-26 19:51:27"
+ },
+ {
+  "collection_id": "8742cab86cc4414092217f87298e94a1",
+  "collection_name": "SOCRadar-Recommended-Block-Hash",
+  "feed": "f897eedce542622c8a156206363b904463b2b3df79b7830577481816ee5c4340",
+  "feed_type": "hash",
+  "latest_seen_date": "2026-02-26 19:51:27",
+  "first_seen_date": "2026-02-26 19:51:27"
+ },
+ {
+  "collection_id": "e89ab3b58e174b8c82767088d8e66cae",
+  "collection_name": "SOCRadar-Attackers-Recommended-Block-IP",
+  "feed": "203.0.113.13",
+  "feed_type": "ip",
+  "latest_seen_date": "2026-02-26 16:46:17",
+  "first_seen_date": "2026-02-26 16:46:17"
+ },
+ {
+  "collection_id": "e89ab3b58e174b8c82767088d8e66cae",
+  "collection_name": "SOCRadar-Attackers-Recommended-Block-IP",
+  "feed": "203.0.113.14",
+  "feed_type": "ip",
+  "latest_seen_date": "2026-02-26 16:46:17",
+  "first_seen_date": "2026-02-26 16:46:17"
+ },
+ {
+  "collection_id": "e89ab3b58e174b8c82767088d8e66cae",
+  "collection_name": "SOCRadar-Attackers-Recommended-Block-IP",
+  "feed": "203.0.113.15",
+  "feed_type": "ip",
+  "latest_seen_date": "2026-02-26 16:46:17",
+  "first_seen_date": "2026-02-26 16:46:17"
+ },
+ {
+  "collection_id": "606a83358bbe466d8c3885e37fa595b7",
+  "collection_name": "SOCRadar-Attackers-Recommended-Block-Domain",
+  "feed": "host15.example.invalid",
+  "feed_type": "hostname",
+  "latest_seen_date": "2026-02-25 11:57:22",
+  "first_seen_date": "2026-02-25 12:27:30"
+ },
+ {
+  "collection_id": "606a83358bbe466d8c3885e37fa595b7",
+  "collection_name": "SOCRadar-Attackers-Recommended-Block-Domain",
+  "feed": "host16.example.invalid",
+  "feed_type": "hostname",
+  "latest_seen_date": "2026-02-23 12:03:20",
+  "first_seen_date": "2026-02-23 12:53:44"
+ },
+ {
+  "collection_id": "606a83358bbe466d8c3885e37fa595b7",
+  "collection_name": "SOCRadar-Attackers-Recommended-Block-Domain",
+  "feed": "host17.example.invalid",
+  "feed_type": "hostname",
+  "latest_seen_date": "2026-02-23 10:17:08",
+  "first_seen_date": "2026-02-23 10:51:56"
+ },
+ {
+  "collection_id": "03cc11380b5d4a77a0d0cc2a7c568230",
+  "collection_name": "SOCRadar-Recommended-Phishing-Global",
+  "feed": "http://host18.example.invalid/path18",
+  "feed_type": "url",
+  "latest_seen_date": "2026-02-25 23:04:11",
+  "first_seen_date": "2026-02-25 23:41:32"
+ },
+ {
+  "collection_id": "03cc11380b5d4a77a0d0cc2a7c568230",
+  "collection_name": "SOCRadar-Recommended-Phishing-Global",
+  "feed": "http://host19.example.invalid/path19",
+  "feed_type": "url",
+  "latest_seen_date": "2026-02-24 10:16:07",
+  "first_seen_date": "2026-02-24 11:10:42"
+ },
+ {
+  "collection_id": "03cc11380b5d4a77a0d0cc2a7c568230",
+  "collection_name": "SOCRadar-Recommended-Phishing-Global",
+  "feed": "http://host20.example.invalid/path20",
+  "feed_type": "url",
+  "latest_seen_date": "2026-02-23 12:30:11",
+  "first_seen_date": "2026-02-24 11:10:42"
+ }
+]
