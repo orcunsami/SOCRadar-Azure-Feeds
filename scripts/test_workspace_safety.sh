@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEMPLATE="$REPO_ROOT/azuredeploy.json"
 
-SUBSCRIPTION="${TEST_SUBSCRIPTION:-00000000-0000-0000-0000-000000000000}"
+SUBSCRIPTION="${TEST_SUBSCRIPTION:?set TEST_SUBSCRIPTION}"
 LOCATION="${TEST_LOCATION:-westeurope}"
 RG="rg-workspace-safety-canary-feeds"
 WS="workspace-safety-canary-feeds"

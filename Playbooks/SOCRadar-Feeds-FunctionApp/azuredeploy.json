@@ -1,0 +1,441 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+        "title": "SOCRadar Feeds Function App",
+        "description": "Deploys an Azure Function App that imports threat intelligence indicators from SOCRadar feed API into Microsoft Sentinel. Supports IP, domain, URL, hash, and email indicators with batch upload and checkpoint-based deduplication. Deploy the Infrastructure playbook first.",
+        "version": "1.0.0",
+        "author": "SOCRadar",
+        "lastUpdateTime": "2026-03-09T00:00:00.000Z"
+    },
+    "parameters": {
+        "FunctionAppName": {
+            "type": "string",
+            "defaultValue": "SOCRadar-Feeds-FunctionApp",
+            "metadata": {
+                "description": "Name for the Function App resource"
+            }
+        },
+        "WorkspaceName": {
+            "type": "string",
+            "metadata": {
+                "description": "Existing Microsoft Sentinel Log Analytics Workspace Name"
+            }
+        },
+        "SocradarApiKey": {
+            "type": "securestring",
+            "metadata": {
+                "description": "SOCRadar Platform API Key"
+            }
+        },
+        "IncludeAPTBlockHash": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Include SOCRadar APT Recommended Block Hash feed (~500 indicators). Add more feeds via Custom Collection IDs."
+            }
+        },
+        "CustomCollectionIds": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Comma-separated custom feed collection UUIDs"
+            }
+        },
+        "CustomCollectionNames": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Comma-separated custom collection names (matching IDs order)"
+            }
+        },
+        "PollingIntervalMinutes": {
+            "type": "int",
+            "defaultValue": 60,
+            "minValue": 5,
+            "maxValue": 1440,
+            "metadata": {
+                "description": "How often to poll SOCRadar feeds (5-1440 minutes)"
+            }
+        },
+        "EnableFeedsTable": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable logging indicators to SOCRadar_Feeds_CL custom table (requires Infrastructure playbook)"
+            }
+        },
+        "EnableAuditLogging": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable audit logging to SOCRadar_Feeds_Audit_CL custom table (requires Infrastructure playbook)"
+            }
+        },
+        "FeedsDcrEndpoint": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "DCE endpoint URL for Feeds table (from Infrastructure playbook output)"
+            }
+        },
+        "FeedsDcrImmutableId": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "DCR immutable ID for Feeds table (from Infrastructure playbook output)"
+            }
+        },
+        "AuditDcrEndpoint": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "DCE endpoint URL for Audit table (from Infrastructure playbook output)"
+            }
+        },
+        "AuditDcrImmutableId": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "DCR immutable ID for Audit table (from Infrastructure playbook output)"
+            }
+        }
+    },
+    "variables": {
+        "functionAppName": "[concat('socradar-feeds-', uniqueString(resourceGroup().id))]",
+        "managedIdentityName": "SOCRadar-Feeds-MI",
+        "hostingPlanName": "SOCRadar-Feeds-Plan",
+        "storageAccountName": "[take(concat('srfeeds', uniqueString(resourceGroup().id)), 24)]",
+        "tableName": "FeedState",
+        "SentinelContributorRoleId": "ab8e14d6-4a74-4a29-9ba8-549422addade",
+        "StorageTableDataContributorRoleId": "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3",
+        "MonitoringMetricsPublisherRoleId": "3913510d-42f4-4e42-8a64-420c390055eb",
+        "WebsiteContributorRoleId": "de139f84-1756-47ae-9be6-808fbbe84772",
+        "FeedsDcrName": "SOCRadar-Feeds-DCR",
+        "AuditDcrName": "SOCRadar-Feeds-Audit-DCR",
+        "FeedsStreamName": "Custom-SOCRadar_Feeds_CL",
+        "AuditStreamName": "Custom-SOCRadar_Feeds_Audit_CL",
+        "appInsightsName": "[concat('socradar-feeds-ai-', uniqueString(resourceGroup().id))]",
+        "workspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
+        "pollingSchedule": "[if(greaterOrEquals(parameters('PollingIntervalMinutes'), 60), concat('0 0 */', string(div(parameters('PollingIntervalMinutes'), 60)), ' * * *'), concat('0 */', string(parameters('PollingIntervalMinutes')), ' * * * *'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2023-05-01",
+            "name": "[variables('storageAccountName')]",
+            "location": "[resourceGroup().location]",
+            "sku": { "name": "Standard_LRS" },
+            "kind": "StorageV2",
+            "properties": {
+                "supportsHttpsTrafficOnly": true,
+                "minimumTlsVersion": "TLS1_2"
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/tableServices",
+            "apiVersion": "2023-05-01",
+            "name": "[concat(variables('storageAccountName'), '/default')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+            "apiVersion": "2023-05-01",
+            "name": "[concat(variables('storageAccountName'), '/default/', variables('tableName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/tableServices', variables('storageAccountName'), 'default')]"
+            ]
+        },
+        {
+            "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+            "apiVersion": "2023-01-31",
+            "name": "[variables('managedIdentityName')]",
+            "location": "[resourceGroup().location]"
+        },
+        {
+            "type": "Microsoft.Web/serverfarms",
+            "apiVersion": "2023-12-01",
+            "name": "[variables('hostingPlanName')]",
+            "location": "[resourceGroup().location]",
+            "sku": {
+                "name": "Y1",
+                "tier": "Dynamic"
+            },
+            "kind": "functionapp",
+            "properties": {
+                "reserved": true
+            }
+        },
+        {
+            "type": "Microsoft.Insights/components",
+            "apiVersion": "2020-02-02",
+            "name": "[variables('appInsightsName')]",
+            "location": "[resourceGroup().location]",
+            "kind": "web",
+            "properties": {
+                "Application_Type": "web",
+                "WorkspaceResourceId": "[variables('workspaceResourceId')]",
+                "RetentionInDays": 30
+            }
+        },
+        {
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "2023-12-01",
+            "name": "[variables('functionAppName')]",
+            "location": "[resourceGroup().location]",
+            "kind": "functionapp,linux",
+            "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                    "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]": {}
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
+                "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts/tableServices/tables', variables('storageAccountName'), 'default', variables('tableName'))]",
+                "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]"
+            ],
+            "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
+                "httpsOnly": true,
+                "siteConfig": {
+                    "linuxFxVersion": "Python|3.11",
+                    "appSettings": [
+                        {
+                            "name": "AzureWebJobsStorage",
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value, ';EndpointSuffix=core.windows.net')]"
+                        },
+                        {
+                            "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value, ';EndpointSuffix=core.windows.net')]"
+                        },
+                        {
+                            "name": "WEBSITE_CONTENTSHARE",
+                            "value": "[variables('functionAppName')]"
+                        },
+                        {
+                            "name": "FUNCTIONS_EXTENSION_VERSION",
+                            "value": "~4"
+                        },
+                        {
+                            "name": "FUNCTIONS_WORKER_RUNTIME",
+                            "value": "python"
+                        },
+                        {
+                            "name": "AzureWebJobsFeatureFlags",
+                            "value": "EnableWorkerIndexing"
+                        },
+                        {
+                            "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                            "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+                        },
+                        {
+                            "name": "WEBSITE_RUN_FROM_PACKAGE",
+                            "value": "https://github.com/orcunsami/SOCRadar-Azure-Feeds/releases/download/v1.0.0/FunctionApp.zip"
+                        },
+                        {
+                            "name": "AZURE_CLIENT_ID",
+                            "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').clientId]"
+                        },
+                        {
+                            "name": "POLLING_SCHEDULE",
+                            "value": "[variables('pollingSchedule')]"
+                        },
+                        {
+                            "name": "SOCRADAR_API_KEY",
+                            "value": "[parameters('SocradarApiKey')]"
+                        },
+                        {
+                            "name": "WORKSPACE_ID",
+                            "value": "[reference(variables('workspaceResourceId'), '2023-09-01').customerId]"
+                        },
+                        {
+                            "name": "WORKSPACE_NAME",
+                            "value": "[parameters('WorkspaceName')]"
+                        },
+                        {
+                            "name": "SUBSCRIPTION_ID",
+                            "value": "[subscription().subscriptionId]"
+                        },
+                        {
+                            "name": "RESOURCE_GROUP",
+                            "value": "[resourceGroup().name]"
+                        },
+                        {
+                            "name": "STORAGE_ACCOUNT_NAME",
+                            "value": "[variables('storageAccountName')]"
+                        },
+                        {
+                            "name": "INCLUDE_0cb06558728b4dc296019c93b78360d1",
+                            "value": "[string(parameters('IncludeAPTBlockHash'))]"
+                        },
+                        {
+                            "name": "CUSTOM_COLLECTION_IDS",
+                            "value": "[parameters('CustomCollectionIds')]"
+                        },
+                        {
+                            "name": "CUSTOM_COLLECTION_NAMES",
+                            "value": "[parameters('CustomCollectionNames')]"
+                        },
+                        {
+                            "name": "ENABLE_FEEDS_TABLE",
+                            "value": "[string(parameters('EnableFeedsTable'))]"
+                        },
+                        {
+                            "name": "ENABLE_AUDIT_LOGGING",
+                            "value": "[string(parameters('EnableAuditLogging'))]"
+                        },
+                        {
+                            "name": "FEEDS_DCR_ENDPOINT",
+                            "value": "[parameters('FeedsDcrEndpoint')]"
+                        },
+                        {
+                            "name": "FEEDS_DCR_IMMUTABLE_ID",
+                            "value": "[parameters('FeedsDcrImmutableId')]"
+                        },
+                        {
+                            "name": "FEEDS_STREAM_NAME",
+                            "value": "[variables('FeedsStreamName')]"
+                        },
+                        {
+                            "name": "AUDIT_DCR_ENDPOINT",
+                            "value": "[parameters('AuditDcrEndpoint')]"
+                        },
+                        {
+                            "name": "AUDIT_DCR_IMMUTABLE_ID",
+                            "value": "[parameters('AuditDcrImmutableId')]"
+                        },
+                        {
+                            "name": "AUDIT_STREAM_NAME",
+                            "value": "[variables('AuditStreamName')]"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceGroup().id, variables('managedIdentityName'), variables('SentinelContributorRoleId'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('SentinelContributorRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+                "principalType": "ServicePrincipal"
+            }
+        },
+        {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), variables('managedIdentityName'), variables('StorageTableDataContributorRoleId'))]",
+            "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('StorageTableDataContributorRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+                "principalType": "ServicePrincipal"
+            }
+        },
+        {
+            "condition": "[parameters('EnableFeedsTable')]",
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName')), variables('managedIdentityName'), variables('MonitoringMetricsPublisherRoleId'))]",
+            "scope": "[resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+                "principalType": "ServicePrincipal"
+            }
+        },
+        {
+            "condition": "[parameters('EnableAuditLogging')]",
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName')), variables('managedIdentityName'), variables('MonitoringMetricsPublisherRoleId'))]",
+            "scope": "[resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+                "principalType": "ServicePrincipal"
+            }
+        },
+        {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "2022-04-01",
+            "name": "[guid(resourceId('Microsoft.Web/sites', variables('functionAppName')), variables('managedIdentityName'), variables('WebsiteContributorRoleId'))]",
+            "scope": "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
+            "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
+                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+            ],
+            "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('WebsiteContributorRoleId'))]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+                "principalType": "ServicePrincipal"
+            }
+        },
+        {
+            "type": "Microsoft.Resources/deploymentScripts",
+            "apiVersion": "2020-10-01",
+            "name": "triggerFirstRun",
+            "location": "[resourceGroup().location]",
+            "kind": "AzureCLI",
+            "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                    "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]": {}
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
+                "[guid(resourceId('Microsoft.Web/sites', variables('functionAppName')), variables('managedIdentityName'), variables('WebsiteContributorRoleId'))]"
+            ],
+            "properties": {
+                "azCliVersion": "2.50.0",
+                "retentionInterval": "PT1H",
+                "timeout": "PT5M",
+                "scriptContent": "sleep 30 && az functionapp restart --name $FA_NAME --resource-group $RG_NAME && echo 'Function App restarted, run_on_startup will trigger first import'",
+                "environmentVariables": [
+                    {
+                        "name": "FA_NAME",
+                        "value": "[variables('functionAppName')]"
+                    },
+                    {
+                        "name": "RG_NAME",
+                        "value": "[resourceGroup().name]"
+                    }
+                ]
+            }
+        }
+    ],
+    "outputs": {
+        "functionAppName": {
+            "type": "string",
+            "value": "[variables('functionAppName')]"
+        },
+        "storageAccountName": {
+            "type": "string",
+            "value": "[variables('storageAccountName')]"
+        },
+        "pollingSchedule": {
+            "type": "string",
+            "value": "[variables('pollingSchedule')]"
+        }
+    }
+}
