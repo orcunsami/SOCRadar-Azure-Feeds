@@ -19,6 +19,8 @@ ENV_POLLING_INTERVAL_MINUTES="${POLLING_INTERVAL_MINUTES:-}"
 ENV_ENABLE_FEEDS_TABLE="${ENABLE_FEEDS_TABLE:-}"
 ENV_ENABLE_AUDIT_LOGGING="${ENABLE_AUDIT_LOGGING:-}"
 ENV_ENABLE_WORKBOOK="${ENABLE_WORKBOOK:-}"
+ENV_DEPLOY_NEW_WORKSPACE="${DEPLOY_NEW_WORKSPACE:-}"
+ENV_INITIAL_LOOKBACK_DAYS="${INITIAL_LOOKBACK_DAYS:-}"
 
 # Load .env (SOCRadar credentials)
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -42,6 +44,8 @@ POLLING_INTERVAL_MINUTES="${ENV_POLLING_INTERVAL_MINUTES:-${POLLING_INTERVAL_MIN
 ENABLE_FEEDS_TABLE="${ENV_ENABLE_FEEDS_TABLE:-${ENABLE_FEEDS_TABLE:-true}}"
 ENABLE_AUDIT_LOGGING="${ENV_ENABLE_AUDIT_LOGGING:-${ENABLE_AUDIT_LOGGING:-true}}"
 ENABLE_WORKBOOK="${ENV_ENABLE_WORKBOOK:-${ENABLE_WORKBOOK:-true}}"
+DEPLOY_NEW_WORKSPACE="${ENV_DEPLOY_NEW_WORKSPACE:-${DEPLOY_NEW_WORKSPACE:-true}}"
+INITIAL_LOOKBACK_DAYS="${ENV_INITIAL_LOOKBACK_DAYS:-${INITIAL_LOOKBACK_DAYS:-30}}"
 
 # Validate required vars
 if [ -z "$SOCRADAR_API_KEY" ]; then
@@ -50,7 +54,7 @@ if [ -z "$SOCRADAR_API_KEY" ]; then
 fi
 
 if [ -z "$SUBSCRIPTION_ID" ] || [ -z "$RESOURCE_GROUP" ] || [ -z "$WORKSPACE_NAME" ]; then
-    echo "ERROR: Missing test.config values"
+    echo "ERROR: Missing SUBSCRIPTION_ID, RESOURCE_GROUP or WORKSPACE_NAME (scripts/test.config or environment)"
     exit 1
 fi
 
@@ -88,7 +92,9 @@ az deployment group create \
     --template-file "$TEMPLATE" \
     --parameters \
         WorkspaceName="$WORKSPACE_NAME" \
+        DeployNewWorkspace="$DEPLOY_NEW_WORKSPACE" \
         WorkspaceLocation="$LOCATION" \
+        InitialLookbackDays="$INITIAL_LOOKBACK_DAYS" \
         SocradarApiKey="$SOCRADAR_API_KEY" \
         IncludeAPTBlockHash="$INCLUDE_APT_BLOCK_HASH" \
         CustomCollectionIds="$CUSTOM_COLLECTION_IDS" \
@@ -122,7 +128,8 @@ echo ""
 # Step 2: Verify Function App
 echo "=== Step 2: Verifying Function App ==="
 FA_STATE=$(az functionapp show --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "state" -o tsv 2>/dev/null || echo "NOT_FOUND")
-FA_PRINCIPAL=$(az functionapp show --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "identity.principalId" -o tsv 2>/dev/null || echo "")
+# The app runs as a user-assigned identity; identity.principalId on the site is empty for that kind.
+FA_PRINCIPAL=$(az identity show -g "$RESOURCE_GROUP" -n "SOCRadar-Feeds-MI" --query principalId -o tsv 2>/dev/null || echo "")
 
 echo "  Function App: $FUNC_APP_NAME"
 echo "  State:        $FA_STATE"
@@ -133,15 +140,15 @@ echo ""
 echo "=== Step 3: Verifying Role Assignments ==="
 if [ -n "$FA_PRINCIPAL" ]; then
     SENTINEL_ROLE=$(az role assignment list --assignee "$FA_PRINCIPAL" \
-        --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP" \
+        --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$WORKSPACE_NAME" \
         --query "[?roleDefinitionName=='Microsoft Sentinel Contributor'].roleDefinitionName" -o tsv 2>/dev/null)
-    [ -n "$SENTINEL_ROLE" ] && echo "  Sentinel Contributor: OK" || echo "  Sentinel Contributor: MISSING"
+    [ -n "$SENTINEL_ROLE" ] && echo "  Sentinel Contributor (workspace): OK" || { echo "  Sentinel Contributor (workspace): MISSING"; exit 1; }
 
     STORAGE_ROLE=$(az role assignment list --assignee "$FA_PRINCIPAL" \
         --query "[?roleDefinitionName=='Storage Table Data Contributor'].roleDefinitionName" -o tsv 2>/dev/null)
-    [ -n "$STORAGE_ROLE" ] && echo "  Storage Table Data Contributor: OK" || echo "  Storage Table Data Contributor: MISSING"
+    [ -n "$STORAGE_ROLE" ] && echo "  Storage Table Data Contributor: OK" || { echo "  Storage Table Data Contributor: MISSING"; exit 1; }
 else
-    echo "  WARNING: No principal ID - cannot verify roles"
+    echo "  ERROR: managed identity SOCRadar-Feeds-MI not found"; exit 1
 fi
 echo ""
 
@@ -151,7 +158,7 @@ STORAGE_ACCOUNT=$(az storage account list -g "$RESOURCE_GROUP" --query "[?starts
 if [ -n "$STORAGE_ACCOUNT" ]; then
     echo "  Storage Account: $STORAGE_ACCOUNT"
     TABLE_EXISTS=$(az storage table list --account-name "$STORAGE_ACCOUNT" --query "[?name=='FeedState'].name" -o tsv 2>/dev/null || echo "")
-    [ -n "$TABLE_EXISTS" ] && echo "  FeedState Table: OK" || echo "  FeedState Table: will be created on first run"
+    [ -n "$TABLE_EXISTS" ] && echo "  FeedState Table: OK" || { echo "  FeedState Table: MISSING (the template creates it; the deployment did not finish)"; exit 1; }
 else
     echo "  WARNING: No storage account found"
 fi

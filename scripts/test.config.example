@@ -1,0 +1,7 @@
+# Copy to scripts/test.config (git-ignored) and fill in your own values.
+SUBSCRIPTION_ID=""
+RESOURCE_GROUP=""
+WORKSPACE_NAME=""
+LOCATION="northeurope"
+DEPLOY_NEW_WORKSPACE="true"
+INITIAL_LOOKBACK_DAYS="30"

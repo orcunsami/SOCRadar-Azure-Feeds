@@ -15,9 +15,13 @@ if [ -f "$SCRIPT_DIR/test.config" ]; then
     source "$SCRIPT_DIR/test.config"
 fi
 
-RESOURCE_GROUP="${ENV_RESOURCE_GROUP:-${RESOURCE_GROUP:-RSS-app-RG}}"
-WORKSPACE_NAME="${ENV_WORKSPACE_NAME:-${WORKSPACE_NAME:-socradar-feeds-func-mar03}}"
-SUBSCRIPTION_ID="${ENV_SUBSCRIPTION_ID:-${SUBSCRIPTION_ID:-b622bfd9-6b2b-45b3-b7d2-7b5d3114b96b}}"
+RESOURCE_GROUP="${ENV_RESOURCE_GROUP:-${RESOURCE_GROUP:-}}"
+WORKSPACE_NAME="${ENV_WORKSPACE_NAME:-${WORKSPACE_NAME:-}}"
+SUBSCRIPTION_ID="${ENV_SUBSCRIPTION_ID:-${SUBSCRIPTION_ID:-}}"
+if [ -z "$SUBSCRIPTION_ID" ] || [ -z "$RESOURCE_GROUP" ] || [ -z "$WORKSPACE_NAME" ]; then
+    echo "ERROR: set SUBSCRIPTION_ID, RESOURCE_GROUP and WORKSPACE_NAME (scripts/test.config or environment)"
+    exit 1
+fi
 
 # Find Function App name
 FUNC_APP_NAME=$(az functionapp list -g "$RESOURCE_GROUP" --query "[?starts_with(name, 'socradar-feeds-')].name" -o tsv 2>/dev/null | head -1)
@@ -118,10 +122,10 @@ fi
 echo "  Function App: $FUNC_APP_NAME ($FA_STATE)"
 
 # Check role assignments
-FA_PRINCIPAL=$(az functionapp show --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "identity.principalId" -o tsv 2>/dev/null || echo "")
+FA_PRINCIPAL=$(az identity show -g "$RESOURCE_GROUP" -n "SOCRadar-Feeds-MI" --query principalId -o tsv 2>/dev/null || echo "")
 if [ -n "$FA_PRINCIPAL" ]; then
     SENTINEL_ROLE=$(az role assignment list --assignee "$FA_PRINCIPAL" \
-        --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP" \
+        --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$WORKSPACE_NAME" \
         --query "[?roleDefinitionName=='Microsoft Sentinel Contributor'].roleDefinitionName" -o tsv 2>/dev/null)
     [ -n "$SENTINEL_ROLE" ] && echo "  Sentinel Contributor: OK" || echo "  Sentinel Contributor: MISSING (may fail)"
 fi
@@ -215,15 +219,17 @@ wait_for_completion 300
 
 INDICATOR_COUNT_FINAL=$(az rest --method GET --url "$TI_URL" --query "value | length(@)" -o tsv 2>/dev/null || echo "0")
 DUPLICATE_INDICATORS=$((INDICATOR_COUNT_FINAL - INDICATOR_COUNT_AFTER))
+echo "  Indicators after 2nd run: $INDICATOR_COUNT_FINAL (delta: $DUPLICATE_INDICATORS)"
 
-echo "  Indicators after 2nd run: $INDICATOR_COUNT_FINAL (new: $DUPLICATE_INDICATORS)"
-
-if [ "$DUPLICATE_INDICATORS" -le 0 ] 2>/dev/null; then
-    echo "  Checkpoint working - no duplicate indicators"
+# A count that stayed flat proves nothing: the second run may simply have sent
+# nothing. Dedup is proven by the same STIX id being one record after two
+# uploads, and by the audit row of the second run saying it did send.
+DUP_IDS=$(az rest --method GET --url "$TI_URL" --query "value[].properties.externalId" -o tsv 2>/dev/null | sort | uniq -d | wc -l | tr -d ' ')
+echo "  STIX ids present more than once: $DUP_IDS"
+if [ "$DUP_IDS" = "0" ]; then
     CHECKPOINT_OK="PASS"
 else
-    echo "  New indicators on 2nd run: $DUPLICATE_INDICATORS (may be new data)"
-    CHECKPOINT_OK="WARN"
+    CHECKPOINT_OK="FAIL"
 fi
 echo ""
 
@@ -240,6 +246,7 @@ echo "|-----------------------|-----------------|"
 [ "$NEW_INDICATORS" -gt 0 ] 2>/dev/null && echo "| TI Indicators         | PASS ($NEW_INDICATORS new) |" || echo "| TI Indicators         | WARN (0 new)    |"
 [ -n "$TABLE_EXISTS" ] && echo "| Storage Checkpoint    | PASS            |" || echo "| Storage Checkpoint    | WARN            |"
 echo "| Checkpoint Dedup      | $CHECKPOINT_OK            |"
+[ "$CHECKPOINT_OK" = "FAIL" ] && exit 1
 echo ""
 echo "Indicators: $INDICATOR_COUNT_BEFORE -> $INDICATOR_COUNT_AFTER -> $INDICATOR_COUNT_FINAL"
 echo ""

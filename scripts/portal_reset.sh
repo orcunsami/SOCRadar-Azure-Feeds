@@ -21,9 +21,14 @@ if [ -n "$1" ]; then
     WORKSPACE_NAME="$1"
 fi
 
-SUBSCRIPTION_ID="${ENV_SUBSCRIPTION_ID:-${SUBSCRIPTION_ID:-b622bfd9-6b2b-45b3-b7d2-7b5d3114b96b}}"
-RESOURCE_GROUP="${ENV_RESOURCE_GROUP:-${RESOURCE_GROUP:-RSS-app-RG}}"
-WORKSPACE_NAME="${ENV_WORKSPACE_NAME:-${WORKSPACE_NAME:-socradar-feeds-func-mar03}}"
+SUBSCRIPTION_ID="${ENV_SUBSCRIPTION_ID:-${SUBSCRIPTION_ID:-}}"
+RESOURCE_GROUP="${ENV_RESOURCE_GROUP:-${RESOURCE_GROUP:-}}"
+WORKSPACE_NAME="${ENV_WORKSPACE_NAME:-${WORKSPACE_NAME:-}}"
+if [ -z "$SUBSCRIPTION_ID" ] || [ -z "$RESOURCE_GROUP" ] || [ -z "$WORKSPACE_NAME" ]; then
+    echo "ERROR: set SUBSCRIPTION_ID, RESOURCE_GROUP and WORKSPACE_NAME (scripts/test.config or environment)"
+    exit 1
+fi
+case "$RESOURCE_GROUP" in *prod*|*Prod*|*PROD*) echo "ERROR: refusing to reset a resource group named like production: $RESOURCE_GROUP"; exit 1;; esac
 
 echo "=== FEEDS FUNCTION APP - FAST RESET ==="
 echo "  Workspace:      $WORKSPACE_NAME"
@@ -47,12 +52,13 @@ echo "  Done"
 
 # 3. Delete Role Assignments
 echo "[3/8] Deleting Role Assignments..."
-for id in $(az role assignment list --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP" --query "[?principalType=='ServicePrincipal'].id" -o tsv 2>/dev/null); do
-    az role assignment delete --ids "$id" 2>/dev/null || true
-done
-for id in $(az role assignment list --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$WORKSPACE_NAME" --query "[?principalType=='ServicePrincipal'].id" -o tsv 2>/dev/null); do
-    az role assignment delete --ids "$id" 2>/dev/null || true
-done
+MI_PRINCIPAL=$(az identity show -g "$RESOURCE_GROUP" -n "SOCRadar-Feeds-MI" --query principalId -o tsv 2>/dev/null || echo "")
+if [ -n "$MI_PRINCIPAL" ]; then
+    for id in $(az role assignment list --all --assignee "$MI_PRINCIPAL" --query "[].id" -o tsv 2>/dev/null); do
+        az role assignment delete --ids "$id" 2>/dev/null || true
+    done
+    az identity delete -g "$RESOURCE_GROUP" -n "SOCRadar-Feeds-MI" 2>/dev/null || true
+fi
 echo "  Done"
 
 # 4. Delete Storage Account (starts with 'srfeeds')
