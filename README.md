@@ -62,25 +62,6 @@ tier, retention or daily cap.
 
 Redeploy the template over an existing installation to pick up the `IndicatorsFailed` and `CollectionsFailed` audit columns; until then the data collection rule drops those two columns silently.
 
-## Existing installations
-
-Deployments made before `DeployNewWorkspace` existed stated a pricing tier on the workspace
-resource, and a template overwrites every field it states. If the target workspace was on a
-**commitment tier**, redeploying reset it to `PerGB2018` (pay-as-you-go).
-
-Check the current tier:
-
-```bash
-az monitor log-analytics workspace show -g <resource-group> -n <workspace> \
-  --query "{sku:sku.name, lastSkuUpdate:sku.lastSkuUpdate}" -o json
-```
-
-If `lastSkuUpdate` lines up with when you deployed this integration and the tier isn't the one
-you picked, reset your commitment tier from **Log Analytics workspaces > Usage and estimated
-costs > Pricing tier**. The current template states no workspace-level settings at all, so
-redeploying -- even with `DeployNewWorkspace=true` set by mistake -- cannot change its pricing
-tier, retention or daily cap.
-
 ## What Gets Deployed
 
 - **Azure Function App** (Python 3.11, Consumption plan) - Polls SOCRadar feeds on schedule
