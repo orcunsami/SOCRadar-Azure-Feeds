@@ -133,6 +133,8 @@ fi
 # Pre-test TI indicator count
 TI_URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$WORKSPACE_NAME/providers/Microsoft.SecurityInsights/threatIntelligence/main/indicators?api-version=2024-03-01&\$top=1000"
 # The indicators API pages its results; one GET sees only the first page.
+# Measured 6 Sep 2026: the nextLink it hands back returns an empty page, so
+# the count is only reliable up to the $top of the first page (1000).
 ti_external_ids() {
     local url="$TI_URL"
     while [ -n "$url" ]; do
