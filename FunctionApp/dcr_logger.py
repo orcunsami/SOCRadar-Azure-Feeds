@@ -5,6 +5,7 @@ Logs to SOCRadar_Feeds_CL and SOCRadar_Feeds_Audit_CL via Azure Monitor Ingestio
 
 import os
 import logging
+import time
 from datetime import datetime, timezone
 from typing import List
 
@@ -13,6 +14,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 DCR_BATCH_SIZE = 500  # DCR ingestion max batch
+TOKEN_REFRESH_MARGIN_SECONDS = 300
 
 
 class DcrLogger:
@@ -28,6 +30,7 @@ class DcrLogger:
         self.audit_dcr_id = audit_dcr_id
         self.audit_stream = audit_stream
         self._monitor_token = None
+        self._monitor_token_expires = 0
 
     @classmethod
     def from_env(cls, credential) -> "DcrLogger":
@@ -42,40 +45,60 @@ class DcrLogger:
         )
 
     def _get_monitor_token(self) -> str:
-        if not self._monitor_token:
+        now = time.time()
+        if not self._monitor_token or self._monitor_token_expires - now < TOKEN_REFRESH_MARGIN_SECONDS:
             token = self.credential.get_token("https://monitor.azure.com/.default")
             self._monitor_token = token.token
+            self._monitor_token_expires = getattr(token, "expires_on", now + 3600)
         return self._monitor_token
 
-    def _ingest(self, endpoint: str, dcr_id: str, stream: str, data: list):
+    def _ingest(self, endpoint: str, dcr_id: str, stream: str, data: list) -> bool:
+        """Send one batch. False means the rows did not land; the caller decides
+        whether that is worth an error. A missing endpoint is a configuration
+        gap, not a transport failure, so it is logged once and reported False.
+        """
         if not endpoint or not dcr_id:
-            return
+            logger.warning("DCR ingestion skipped for %s: endpoint or DCR id not configured", stream)
+            return False
         url = f"{endpoint}/dataCollectionRules/{dcr_id}/streams/{stream}?api-version=2023-01-01"
+        try:
+            token = self._get_monitor_token()
+        except Exception as e:
+            logger.error("DCR token acquisition failed: %s", e)
+            return False
         headers = {
-            "Authorization": f"Bearer {self._get_monitor_token()}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
-        resp = requests.post(url, headers=headers, json=data, timeout=30)
+        try:
+            resp = requests.post(url, headers=headers, json=data, timeout=30)
+        except Exception as e:
+            logger.error("DCR ingestion request failed for %s: %s", stream, e)
+            return False
         if resp.status_code not in (200, 204):
-            logger.warning("DCR ingestion failed: %d %s", resp.status_code, resp.text[:200])
+            logger.error("DCR ingestion failed for %s: %d %s", stream, resp.status_code, resp.text[:200])
+            return False
+        return True
 
-    def log_feeds(self, records: List[dict]):
+    def log_feeds(self, records: List[dict]) -> bool:
         if not records:
-            return
+            return True
+        ok = True
         for i in range(0, len(records), DCR_BATCH_SIZE):
             batch = records[i:i + DCR_BATCH_SIZE]
-            self._ingest(self.feeds_endpoint, self.feeds_dcr_id,
-                         self.feeds_stream, batch)
+            ok = self._ingest(self.feeds_endpoint, self.feeds_dcr_id, self.feeds_stream, batch) and ok
+        return ok
 
-    def log_audit(self, data: dict):
+    def log_audit(self, data: dict) -> bool:
         record = {
             "TimeGenerated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             "CollectionsProcessed": data.get("collections_processed", 0),
+            "CollectionsFailed": data.get("collections_failed", 0),
             "IndicatorsCreated": data.get("indicators_created", 0),
             "IndicatorsSkipped": data.get("indicators_skipped", 0),
+            "IndicatorsFailed": data.get("indicators_failed", 0),
             "DurationMs": data.get("duration_ms", 0),
             "Status": data.get("status", ""),
             "ErrorMessage": data.get("error_message", ""),
         }
-        self._ingest(self.audit_endpoint, self.audit_dcr_id,
-                     self.audit_stream, [record])
+        return self._ingest(self.audit_endpoint, self.audit_dcr_id, self.audit_stream, [record])
