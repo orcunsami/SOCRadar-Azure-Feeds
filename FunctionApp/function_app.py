@@ -7,11 +7,20 @@ import logging
 import time
 import azure.functions as func
 
-from feeds_processor import FeedsProcessor
+from feeds_processor import FeedsProcessor, redact
 
 app = func.FunctionApp()
 
 logger = logging.getLogger(__name__)
+
+
+def audit_status(result: dict) -> str:
+    """Status follows the counters, not the absence of an exception. A run
+    that lost indicators or a collection is not a success even though it
+    raised nothing; reporting it as one is what hid that class of loss."""
+    if result["collections_failed"] or result["collections_partial"] or result["indicators_failed"]:
+        return "PartialSuccess"
+    return "Success"
 
 
 @app.timer_trigger(
@@ -36,39 +45,47 @@ def socradar_feeds_import(timer: func.TimerRequest) -> None:
         result = processor.run()
 
         elapsed_ms = int((time.time() - start_time) * 1000)
+        status = audit_status(result)
         logger.info(
-            "Step 3: Import complete - %d collections, %d created, %d skipped, %dms",
-            result["collections_processed"],
-            result["indicators_created"],
-            result["indicators_skipped"],
-            elapsed_ms,
+            "Step 3: Import %s - %d collections ok, %d partial, %d failed, %d created, %d skipped, %d failed, %dms",
+            status, result["collections_processed"], result["collections_partial"],
+            result["collections_failed"], result["indicators_created"],
+            result["indicators_skipped"], result["indicators_failed"], elapsed_ms,
         )
 
         logger.info("Step 4: Sending audit log")
-        processor.log_audit(
+        written = processor.log_audit(
             collections_processed=result["collections_processed"],
+            collections_failed=result["collections_failed"] + result["collections_partial"],
             indicators_created=result["indicators_created"],
             indicators_skipped=result["indicators_skipped"],
+            indicators_failed=result["indicators_failed"],
             duration_ms=elapsed_ms,
-            status="Success",
-            error_message="",
+            status=status,
+            error_message="; ".join(result["errors"])[:1000],
         )
-        logger.info("Step 4: Done")
-        logger.info("=== SOCRadar Feeds Import finished successfully (%dms) ===", elapsed_ms)
+        if not written:
+            logger.error("Step 4: Audit row was not written; the run itself finished with status %s", status)
+        else:
+            logger.info("Step 4: Done")
+        logger.info("=== SOCRadar Feeds Import finished (%s, %dms) ===", status, elapsed_ms)
 
     except Exception as e:
         elapsed_ms = int((time.time() - start_time) * 1000)
-        logger.error("=== SOCRadar Feeds Import FAILED after %dms: %s ===", elapsed_ms, e)
+        message = redact(e)
+        logger.error("=== SOCRadar Feeds Import FAILED after %dms: %s ===", elapsed_ms, message)
         if processor:
             try:
                 processor.log_audit(
                     collections_processed=0,
+                    collections_failed=len(processor.collections),
                     indicators_created=0,
                     indicators_skipped=0,
+                    indicators_failed=0,
                     duration_ms=elapsed_ms,
                     status="Failed",
-                    error_message=str(e),
+                    error_message=message[:1000],
                 )
             except Exception:
                 pass
-        raise
+        raise RuntimeError(message) from None
