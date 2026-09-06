@@ -145,7 +145,9 @@ if [ -n "$FA_PRINCIPAL" ]; then
         --query "[?roleDefinitionName=='Microsoft Sentinel Contributor'].roleDefinitionName" -o tsv 2>/dev/null)
     [ -n "$SENTINEL_ROLE" ] && echo "  Sentinel Contributor (workspace): OK" || { echo "  Sentinel Contributor (workspace): MISSING"; exit 1; }
 
-    STORAGE_ROLE=$(az role assignment list --assignee "$FA_PRINCIPAL" \
+    # Without --all the list covers the subscription scope only and misses
+    # the storage-account-scoped assignment the template creates.
+    STORAGE_ROLE=$(az role assignment list --assignee "$FA_PRINCIPAL" --all \
         --query "[?roleDefinitionName=='Storage Table Data Contributor'].roleDefinitionName" -o tsv 2>/dev/null)
     [ -n "$STORAGE_ROLE" ] && echo "  Storage Table Data Contributor: OK" || { echo "  Storage Table Data Contributor: MISSING"; exit 1; }
 else
