@@ -4,7 +4,7 @@ Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentin
 
 ## Deployment
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Azure-Feeds%2Ffunction%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Azure-Feeds%2Fmaster%2Fazuredeploy.json)
 
 Click the **Deploy to Azure** button above. Fill in the parameters and click **Create**. The function app and code are deployed automatically.
 
@@ -21,7 +21,7 @@ az deployment group create \
 
 ## Prerequisites
 
-- Microsoft Sentinel workspace
+- Microsoft Sentinel workspace **in the same resource group** you deploy to
 - SOCRadar Platform API Key
 
 ## Parameters
@@ -35,10 +35,11 @@ az deployment group create \
 | `IncludeAPTBlockHash` | No | true | Include APT Recommended Block Hash feed (~500 indicators) |
 | `CustomCollectionIds` | No | "" | Comma-separated custom feed collection UUIDs |
 | `CustomCollectionNames` | No | "" | Comma-separated custom collection names |
-| `PollingIntervalMinutes` | No | 60 | Polling interval (5-1440 minutes) |
+| `InitialLookbackDays` | No | 30 | First run of a collection sends only indicators last seen within this many days. `0` sends the whole feed. |
+| `PollingIntervalMinutes` | No | 60 | Polling interval (5-1440 minutes). 60 and above is rounded down to whole hours. |
 | `EnableFeedsTable` | No | true | Store indicators in SOCRadar_Feeds_CL |
-| `EnableAuditLogging` | No | true | Log operations to SOCRadar_Feeds_Audit_CL |
-| `EnableWorkbook` | No | true | Deploy analytics dashboard |
+| `EnableAuditLogging` | No | true | Log runs to SOCRadar_Feeds_Audit_CL |
+| `EnableWorkbook` | No | true | Deploy the dashboard (needs `EnableFeedsTable`) |
 
 ## Existing installations
 
@@ -62,56 +63,64 @@ tier, retention or daily cap.
 ## What Gets Deployed
 
 - **Azure Function App** (Python 3.11, Consumption plan) - Polls SOCRadar feeds on schedule
-- **Application Insights** - Monitoring with step-by-step logging (workspace-based, 30 day retention)
-- **User-Assigned Managed Identity** - Secure access to Microsoft Sentinel and Storage
-- **Storage Account** - Checkpoint table for deduplication
-- **DCE + DCR + Custom Tables** (optional) - SOCRadar_Feeds_CL and audit logging
+- **Application Insights** - Step-by-step logging (workspace-based, 30 day retention)
+- **User-Assigned Managed Identity** - Access to Microsoft Sentinel and Storage, no stored Azure credentials
+- **Storage Account** - `FeedState` table holding one checkpoint per collection
+- **DCE + DCR + Custom Tables** (optional) - SOCRadar_Feeds_CL and SOCRadar_Feeds_Audit_CL
 - **Workbook** (optional) - SOCRadar Threat Feeds Dashboard
-- **Deployment Script** - Automatically triggers first import after deployment
+- **Deployment Script** - Checks the package loaded and triggers the first import
 
-## Key Features
+## How a run works
 
-- STIX 2.1 indicator building (IP, domain, URL, file hash, email)
-- Batch upload to Microsoft Sentinel TI (100 indicators/batch)
-- Checkpoint-based deduplication (only new indicators on each run)
-- Custom collection support via SOCRadar API
-- Managed Identity authentication (no stored credentials for Azure)
+1. Each configured collection is fetched from the SOCRadar feed API.
+2. Indicators last seen after the collection's checkpoint (minus a 48 hour overlap) are sent to Microsoft Sentinel TI in batches of 100. On the first run the window is `InitialLookbackDays`.
+3. The checkpoint moves to the newest `latest_seen_date` that was delivered. If a batch never reaches Microsoft Sentinel the checkpoint stays where it was and the run is recorded as `PartialSuccess`; the next run sends those indicators again.
+4. Indicator ids are stable (derived from type, value and collection), so re-sending an indicator updates the existing record instead of creating a copy.
+
+Indicators with an unsupported type or hash length are counted and skipped, not sent as a guessed type.
 
 ## Indicator Types
 
-| Type | Pattern | Auto-detected From |
-|------|---------|-------------------|
-| IP | `[ipv4-addr:value = '1.2.3.4']` | ip type feeds |
-| Domain | `[domain-name:value = 'evil.com']` | domain type feeds |
-| URL | `[url:value = 'http://...']` | url type feeds |
-| Hash (MD5/SHA-1/SHA-256) | `[file:hashes.MD5 = '...']` | 32/40/64-char hash |
-| Email | `[email-addr:value = '...']` | email type feeds |
+| Feed type | Pattern |
+|------|---------|
+| ip | `[ipv4-addr:value = '...']` |
+| ipv6 | `[ipv6-addr:value = '...']` |
+| domain, hostname | `[domain-name:value = '...']` |
+| url | `[url:value = '...']` |
+| hash (32 / 40 / 64 chars) | `[file:hashes.MD5 = '...']`, `SHA-1`, `SHA-256` |
+| email | `[email-addr:value = '...']` |
 
 ## Post-Deployment
 
-The function automatically runs after deployment via a deployment script. Subsequent runs poll on the configured schedule. Only new indicators are imported (checkpoint-based deduplication).
+The deployment script verifies that the package URL answers and that the function was indexed, then restarts the app so the first import runs. Custom tables receive their first rows 10-15 minutes after the first run; that delay is normal for a newly created table.
+
+### Audit table
+
+`SOCRadar_Feeds_Audit_CL` gets one row per run:
+
+| Status | Meaning |
+|--------|---------|
+| `Success` | every collection was delivered completely |
+| `PartialSuccess` | at least one collection failed or lost indicators; `ErrorMessage` says which. Lost indicators are sent again on the next run |
+| `Failed` | the run itself failed before any collection completed |
 
 ### Managing Collections
 
-To add or remove feed collections after deployment:
-
 1. Go to your **Function App** in Azure Portal
-2. Click **Configuration** under Settings
-3. Edit the relevant **Application Settings**:
+2. Open **Settings > Environment variables**
+3. Edit:
    - `CUSTOM_COLLECTION_IDS` — comma-separated collection UUIDs
    - `CUSTOM_COLLECTION_NAMES` — comma-separated names (same order as IDs)
-   - `INCLUDE_0cb06558728b4dc296019c93b78360d1` — set to `True` or `False` to enable/disable the APT Block Hash feed
-4. Click **Save** — the Function App restarts automatically
+   - `INCLUDE_0cb06558728b4dc296019c93b78360d1` — `True` or `False` for the APT Block Hash feed
+4. Click **Apply** — the Function App restarts and, because the timer runs on startup, imports immediately
 
-New collections start from the configured lookback window. Removed collections leave harmless orphan checkpoints in Table Storage.
+New collections start from `InitialLookbackDays`. Removed collections leave harmless orphan checkpoints in Table Storage.
 
 ### Monitoring Logs
 
-To view real-time execution logs:
-
 1. Go to your **Function App** in Azure Portal
-2. Navigate to **Monitoring > Log stream** for real-time logs
-3. Or go to **Application Insights > Logs** and run:
+2. **Monitoring > Log stream** for real-time logs
+3. Or **Application Insights > Logs**:
 
 ```kql
 traces
@@ -120,15 +129,20 @@ traces
 | order by timestamp desc
 ```
 
-Each run logs step-by-step progress (Step 1: init, Step 2: fetch feeds, Step 3: complete, Step 4: audit).
+## Development
+
+```bash
+python3 tests/run_all.py        # unit tests, no Azure needed
+python3 tests/mutate.py         # proves the tests catch the bugs they exist for
+python3 scripts/build_package.py --out dist/FunctionApp.zip --deps-from <released FunctionApp.zip>
+```
+
+Build the package with the script, not `zip -r`: archives from the macOS zip tool can carry entries the Linux worker cannot read, and the host then indexes zero functions without reporting an error.
 
 ## About SOCRadar
 
-SOCRadar is an Extended Threat Intelligence (XTI) platform.
-
-Learn more at [socradar.io](https://socradar.io)
+SOCRadar is an Extended Threat Intelligence (XTI) platform. Learn more at [socradar.io](https://socradar.io)
 
 ## Support
 
-- **Documentation:** [docs.socradar.io](https://docs.socradar.io)
-- **Support:** support@socradar.io
+integration@socradar.io
