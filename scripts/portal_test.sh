@@ -132,7 +132,21 @@ fi
 
 # Pre-test TI indicator count
 TI_URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$WORKSPACE_NAME/providers/Microsoft.SecurityInsights/threatIntelligence/main/indicators?api-version=2024-03-01&\$top=1000"
-INDICATOR_COUNT_BEFORE=$(az rest --method GET --url "$TI_URL" --query "value | length(@)" -o tsv 2>/dev/null || echo "0")
+# The indicators API pages its results; one GET sees only the first page.
+ti_external_ids() {
+    local url="$TI_URL"
+    while [ -n "$url" ]; do
+        local page
+        page=$(az rest --method GET --url "$url" -o json 2>/dev/null) || break
+        printf '%s' "$page" | python3 -c 'import sys, json
+for v in json.load(sys.stdin).get("value", []):
+    print(v.get("properties", {}).get("externalId", ""))'
+        url=$(printf '%s' "$page" | python3 -c 'import sys, json; print(json.load(sys.stdin).get("nextLink", ""))')
+    done
+}
+ti_count() { ti_external_ids | wc -l | tr -d ' '; }
+
+INDICATOR_COUNT_BEFORE=$(ti_count)
 echo "  TI Indicators before: $INDICATOR_COUNT_BEFORE"
 echo ""
 
@@ -168,7 +182,7 @@ echo "=== Test 2: Checking TI Indicators ==="
 
 sleep 5
 
-INDICATOR_COUNT_AFTER=$(az rest --method GET --url "$TI_URL" --query "value | length(@)" -o tsv 2>/dev/null || echo "0")
+INDICATOR_COUNT_AFTER=$(ti_count)
 NEW_INDICATORS=$((INDICATOR_COUNT_AFTER - INDICATOR_COUNT_BEFORE))
 
 echo "  TI Indicators before: $INDICATOR_COUNT_BEFORE"
@@ -198,7 +212,7 @@ if [ -n "$STORAGE_ACCOUNT" ]; then
         echo "  Checkpoint entries: $ENTITY_COUNT"
         # Show checkpoint details
         az storage entity query --table-name "FeedState" --account-name "$STORAGE_ACCOUNT" \
-            --query "items[].{Collection:CollectionName, LastRun:LastRun, New:NewIndicators}" -o table 2>/dev/null || true
+            --query "items[].{Collection:CollectionName, Processed:LastProcessedDate, LastRun:LastRun, New:NewIndicators}" -o table 2>/dev/null || true
     else
         echo "  FeedState Table: NOT FOUND"
     fi
@@ -217,14 +231,14 @@ echo "  Triggered (HTTP $HTTP_CODE)"
 
 wait_for_completion 300
 
-INDICATOR_COUNT_FINAL=$(az rest --method GET --url "$TI_URL" --query "value | length(@)" -o tsv 2>/dev/null || echo "0")
+INDICATOR_COUNT_FINAL=$(ti_count)
 DUPLICATE_INDICATORS=$((INDICATOR_COUNT_FINAL - INDICATOR_COUNT_AFTER))
 echo "  Indicators after 2nd run: $INDICATOR_COUNT_FINAL (delta: $DUPLICATE_INDICATORS)"
 
 # A count that stayed flat proves nothing: the second run may simply have sent
 # nothing. Dedup is proven by the same STIX id being one record after two
 # uploads, and by the audit row of the second run saying it did send.
-DUP_IDS=$(az rest --method GET --url "$TI_URL" --query "value[].properties.externalId" -o tsv 2>/dev/null | sort | uniq -d | wc -l | tr -d ' ')
+DUP_IDS=$(ti_external_ids | sort | uniq -d | wc -l | tr -d ' ')
 echo "  STIX ids present more than once: $DUP_IDS"
 if [ "$DUP_IDS" = "0" ]; then
     CHECKPOINT_OK="PASS"

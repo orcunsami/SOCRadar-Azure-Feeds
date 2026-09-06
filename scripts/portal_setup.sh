@@ -103,6 +103,7 @@ az deployment group create \
         EnableFeedsTable="$ENABLE_FEEDS_TABLE" \
         EnableAuditLogging="$ENABLE_AUDIT_LOGGING" \
         EnableWorkbook="$ENABLE_WORKBOOK" \
+        ${PACKAGE_URI:+PackageUri="$PACKAGE_URI"} \
     -o table
 
 # Get Function App name from deployment output
