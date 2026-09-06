@@ -5,3 +5,5 @@ WORKSPACE_NAME=""
 LOCATION="northeurope"
 DEPLOY_NEW_WORKSPACE="true"
 INITIAL_LOOKBACK_DAYS="30"
+# Optional: test a package that is not released yet (blob URL with a read SAS)
+PACKAGE_URI=""
