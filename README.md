@@ -60,6 +60,8 @@ costs > Pricing tier**. The current template states no workspace-level settings 
 redeploying -- even with `DeployNewWorkspace=true` set by mistake -- cannot change its pricing
 tier, retention or daily cap.
 
+Redeploy the template over an existing installation to pick up the `IndicatorsFailed` and `CollectionsFailed` audit columns; until then the data collection rule drops those two columns silently.
+
 ## What Gets Deployed
 
 - **Azure Function App** (Python 3.11, Consumption plan) - Polls SOCRadar feeds on schedule

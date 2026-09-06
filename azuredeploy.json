@@ -635,7 +635,7 @@
                 "azCliVersion": "2.50.0",
                 "retentionInterval": "PT1H",
                 "timeout": "PT10M",
-                "scriptContent": "set -e; code=$(curl -s -o /dev/null -w '%{http_code}' -L \"$PACKAGE_URL\"); [ \"$code\" = 200 ] || { echo \"package URL returned HTTP $code\"; exit 1; }; az functionapp restart --name $FA_NAME --resource-group $RG_NAME; for i in $(seq 1 24); do sleep 10; n=$(az rest --method get --url \"https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$RG_NAME/providers/Microsoft.Web/sites/$FA_NAME/functions?api-version=2023-12-01\" --query 'length(value)' -o tsv 2>/dev/null || echo 0); [ \"$n\" -ge 1 ] && { echo \"$n function(s) indexed; run_on_startup triggers the first import\"; exit 0; }; done; echo 'no function was indexed within 4 minutes; the package did not load'; exit 1",
+                "scriptContent": "set -e; code=$(curl -s -o /dev/null -w '%{http_code}' -L \"$PACKAGE_URL\"); [ \"$code\" = 200 ] || { echo \"package URL returned HTTP $code\"; exit 1; }; echo 'waiting 90s for role assignments to propagate before the first run'; sleep 90; az functionapp restart --name $FA_NAME --resource-group $RG_NAME; for i in $(seq 1 24); do sleep 10; n=$(az rest --method get --url \"https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$RG_NAME/providers/Microsoft.Web/sites/$FA_NAME/functions?api-version=2023-12-01\" --query 'length(value)' -o tsv 2>/dev/null || echo 0); [ \"$n\" -ge 1 ] && { echo \"$n function(s) indexed; run_on_startup triggers the first import\"; exit 0; }; done; echo 'no function was indexed within 4 minutes; the package did not load'; exit 1",
                 "environmentVariables": [
                     {
                         "name": "FA_NAME",

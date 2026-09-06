@@ -35,7 +35,6 @@ class ConnErr(Exception):
 
 
 stub = FakeRequests(get_responses=[ConnErr("Max retries exceeded with url: /feed_list/x.json?key=secret-key-value&v=2")])
-result = make_processor(stub, table=FakeTable(), sleeps=[]).run() if False else None
 try:
     make_processor(stub, table=FakeTable(), sleeps=[]).run()
     raised = None
