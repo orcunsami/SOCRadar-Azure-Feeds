@@ -60,20 +60,39 @@ wait_for_completion() {
     local MAX_WAIT=${1:-300}
     local INTERVAL=10
     local ELAPSED=0
+    local MASTER_KEY
+    MASTER_KEY=$(az functionapp keys list --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "masterKey" -o tsv 2>&1)
+    if [ $? -ne 0 ] || [ -z "$MASTER_KEY" ]; then
+        # Not a timeout and not a success: we never got to look. Say so.
+        echo "  CANNOT MEASURE: master key unavailable (${MASTER_KEY%%$'\n'*})"
+        return 2
+    fi
 
     echo "  Waiting for function to complete (max ${MAX_WAIT}s)..."
 
     while [ $ELAPSED -lt $MAX_WAIT ]; do
-        # Check recent invocations via app insights or just wait
         printf "\r  [%3ds] Running...   " $ELAPSED
         sleep $INTERVAL
         ELAPSED=$((ELAPSED + INTERVAL))
 
-        # Check if function is idle (no active executions)
-        local STATUS=$(curl -s \
-            -H "x-functions-key: $(az functionapp keys list --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "masterKey" -o tsv 2>/dev/null)" \
-            "https://${FUNC_APP_NAME}.azurewebsites.net/admin/functions/socradar_feeds_import/status" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('is_running', 'unknown'))" 2>/dev/null || echo "unknown")
-
+        local BODY HTTP
+        BODY=$(curl -s -w '\n%{http_code}' \
+            -H "x-functions-key: $MASTER_KEY" \
+            "https://${FUNC_APP_NAME}.azurewebsites.net/admin/functions/socradar_feeds_import/status")
+        HTTP=$(printf '%s' "$BODY" | tail -1)
+        BODY=$(printf '%s' "$BODY" | sed '$d')
+        if [ "$HTTP" != "200" ]; then
+            echo ""
+            echo "  CANNOT MEASURE: status endpoint returned HTTP $HTTP"
+            return 2
+        fi
+        local STATUS
+        STATUS=$(printf '%s' "$BODY" | python3 -c "import sys,json;print(json.load(sys.stdin).get('is_running','unknown'))" 2>/dev/null || echo "parse-error")
+        if [ "$STATUS" = "parse-error" ]; then
+            echo ""
+            echo "  CANNOT MEASURE: status body was not JSON"
+            return 2
+        fi
         if [ "$STATUS" = "false" ] || [ "$STATUS" = "False" ]; then
             echo ""
             echo "  Completed (${ELAPSED}s)"
@@ -82,8 +101,10 @@ wait_for_completion() {
     done
 
     echo ""
-    echo "  Timeout after ${MAX_WAIT}s (function may still be running)"
-    return 0
+    # A timeout is NOT a pass. The old code returned 0 here and the caller
+    # ignored it, so a function that never finished read as a green run.
+    echo "  TIMEOUT after ${MAX_WAIT}s (function did not report idle)"
+    return 1
 }
 
 echo "=== SOCRadar Feeds Function App - Test ==="
@@ -167,8 +188,9 @@ else
     az functionapp log tail --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --timeout 5 2>/dev/null || true
 fi
 
-# Wait for completion
-wait_for_completion 300
+# Wait for completion. The return code matters: 0 done, 1 timeout, 2 could not look.
+RUN1_WAIT="OK"
+wait_for_completion 300 || RUN1_WAIT=$([ $? -eq 1 ] && echo "TIMEOUT" || echo "CANNOT-MEASURE")
 
 # Check logs for result
 echo "  Checking recent logs..."
@@ -203,23 +225,39 @@ echo ""
 # ===========================================
 # TEST 3: Check Storage Table (Checkpoint)
 # ===========================================
+STORAGE_STATE="CANNOT-MEASURE"
 echo "=== Test 3: Checking Storage Checkpoint ==="
 STORAGE_ACCOUNT=$(az storage account list -g "$RESOURCE_GROUP" --query "[?starts_with(name, 'srfeeds')].name" -o tsv 2>/dev/null | head -1)
 if [ -n "$STORAGE_ACCOUNT" ]; then
     echo "  Storage Account: $STORAGE_ACCOUNT"
-    TABLE_EXISTS=$(az storage table list --account-name "$STORAGE_ACCOUNT" --query "[?name=='FeedState'].name" -o tsv 2>/dev/null || echo "")
-    if [ -n "$TABLE_EXISTS" ]; then
+    # --auth-mode key is required: without it recent az CLI tries AAD against the
+    # table endpoint and fails. The old code sent that failure to /dev/null and
+    # printed "NOT FOUND" / "0 entries", so a broken call read as a real answer.
+    TABLE_EXISTS=$(az storage table list --account-name "$STORAGE_ACCOUNT" --auth-mode key \
+        --query "[?name=='FeedState'].name" -o tsv 2>&1)
+    if [ $? -ne 0 ]; then
+        echo "  FeedState Table: CANNOT MEASURE (${TABLE_EXISTS%%$'\n'*})"
+        STORAGE_STATE="CANNOT-MEASURE"; TABLE_EXISTS=""
+    elif [ -n "$TABLE_EXISTS" ]; then
         echo "  FeedState Table: OK"
-        ENTITY_COUNT=$(az storage entity query --table-name "FeedState" --account-name "$STORAGE_ACCOUNT" --query "items | length(@)" -o tsv 2>/dev/null || echo "0")
-        echo "  Checkpoint entries: $ENTITY_COUNT"
-        # Show checkpoint details
-        az storage entity query --table-name "FeedState" --account-name "$STORAGE_ACCOUNT" \
-            --query "items[].{Collection:CollectionName, Processed:LastProcessedDate, LastRun:LastRun, New:NewIndicators}" -o table 2>/dev/null || true
+        ENTITY_COUNT=$(az storage entity query --table-name "FeedState" --account-name "$STORAGE_ACCOUNT" \
+            --auth-mode key --query "items | length(@)" -o tsv 2>&1)
+        if [ $? -ne 0 ]; then
+            echo "  Checkpoint entries: CANNOT MEASURE (${ENTITY_COUNT%%$'\n'*})"
+            STORAGE_STATE="CANNOT-MEASURE"
+        else
+            echo "  Checkpoint entries: $ENTITY_COUNT"
+            STORAGE_STATE="OK"
+            az storage entity query --table-name "FeedState" --account-name "$STORAGE_ACCOUNT" --auth-mode key \
+                --query "items[].{Collection:CollectionName, Processed:LastProcessedDate, LastRun:LastRun, New:NewIndicators}" -o table 2>&1 | head -20
+        fi
     else
-        echo "  FeedState Table: NOT FOUND"
+        echo "  FeedState Table: NOT FOUND (query succeeded, table absent)"
+        STORAGE_STATE="MISSING"
     fi
 else
     echo "  Storage Account: NOT FOUND"
+    STORAGE_STATE="MISSING"
 fi
 echo ""
 
@@ -231,7 +269,8 @@ echo "  Triggering second run..."
 HTTP_CODE=$(trigger_function)
 echo "  Triggered (HTTP $HTTP_CODE)"
 
-wait_for_completion 300
+RUN2_WAIT="OK"
+wait_for_completion 300 || RUN2_WAIT=$([ $? -eq 1 ] && echo "TIMEOUT" || echo "CANNOT-MEASURE")
 
 INDICATOR_COUNT_FINAL=$(ti_count)
 DUPLICATE_INDICATORS=$((INDICATOR_COUNT_FINAL - INDICATOR_COUNT_AFTER))
@@ -256,13 +295,53 @@ echo "==========================================="
 echo "            TEST SUMMARY"
 echo "==========================================="
 echo ""
+# Every row is PASS, FAIL or CANNOT-MEASURE. There is no row that can only warn:
+# a harness whose worst outcome is a warning cannot fail, and a run that imported
+# nothing used to read as green here.
+fails=0
+row() { printf "| %-21s | %-15s |\n" "$1" "$2"; [ "$2" = "PASS" ] || fails=$((fails+1)); }
+
 echo "| Test                  | Result          |"
 echo "|-----------------------|-----------------|"
-[ "$NEW_INDICATORS" -gt 0 ] 2>/dev/null && echo "| Import Run            | PASS            |" || echo "| Import Run            | WARN (0 new)    |"
-[ "$NEW_INDICATORS" -gt 0 ] 2>/dev/null && echo "| TI Indicators         | PASS ($NEW_INDICATORS new) |" || echo "| TI Indicators         | WARN (0 new)    |"
-[ -n "$TABLE_EXISTS" ] && echo "| Storage Checkpoint    | PASS            |" || echo "| Storage Checkpoint    | WARN            |"
-echo "| Checkpoint Dedup      | $CHECKPOINT_OK            |"
-[ "$CHECKPOINT_OK" = "FAIL" ] && exit 1
+
+if [ "$RUN1_WAIT" != "OK" ]; then
+    row "Import Run" "$RUN1_WAIT"
+elif [ "${NEW_INDICATORS:-0}" -gt 0 ] 2>/dev/null; then
+    row "Import Run" "PASS"
+else
+    # First run against a fresh workspace importing nothing is a failure, not a warning.
+    row "Import Run" "FAIL (0 new)"
+fi
+
+if [ "${NEW_INDICATORS:-0}" -gt 0 ] 2>/dev/null; then
+    printf "| %-21s | %-15s |\n" "TI Indicators" "PASS ($NEW_INDICATORS)"
+else
+    row "TI Indicators" "FAIL (0 new)"
+fi
+
+case "$STORAGE_STATE" in
+    OK)      row "Storage Checkpoint" "PASS" ;;
+    MISSING) row "Storage Checkpoint" "FAIL (absent)" ;;
+    *)       row "Storage Checkpoint" "CANNOT-MEASURE" ;;
+esac
+
+# Second run: 0 new is the EXPECTED result (that is what the checkpoint is for).
+if [ "$RUN2_WAIT" != "OK" ]; then
+    row "Second Run" "$RUN2_WAIT"
+else
+    row "Second Run" "PASS"
+fi
+
+row "Checkpoint Dedup" "$CHECKPOINT_OK"
+
+echo ""
+if [ "$fails" -ne 0 ]; then
+    echo "RESULT: FAIL ($fails check(s) not PASS)"
+    echo "Indicators: $INDICATOR_COUNT_BEFORE -> $INDICATOR_COUNT_AFTER -> $INDICATOR_COUNT_FINAL"
+    echo "Function App will be STOPPED by cleanup trap."
+    exit 1
+fi
+echo "RESULT: PASS"
 echo ""
 echo "Indicators: $INDICATOR_COUNT_BEFORE -> $INDICATOR_COUNT_AFTER -> $INDICATOR_COUNT_FINAL"
 echo ""
