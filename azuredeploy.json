@@ -101,6 +101,13 @@
             "metadata": {
                 "description": "URL of the Function App package. Leave the default unless you host the package yourself."
             }
+        },
+        "_packagePushTimestamp": {
+            "type": "string",
+            "defaultValue": "[utcNow()]",
+            "metadata": {
+                "description": "Set automatically. Forces the package push to run again on a redeploy, which would otherwise reset WEBSITE_RUN_FROM_PACKAGE and leave the app empty."
+            }
         }
     },
     "variables": {
@@ -128,6 +135,40 @@
     },
     "resources": [
         {
+            "comments": "Resolves the existing workspace before any resource is created. A condition:false resource counts as a satisfied dependency in ARM, so depending on the workspace resource itself does not stop the deployment when WorkspaceName does not exist and DeployNewWorkspace is false -- it would create the storage account, the user-assigned identity and the App Service Plan and only then fail. This checks that the workspace EXISTS and nothing else.",
+            "condition": "[not(parameters('DeployNewWorkspace'))]",
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2021-04-01",
+            "name": "precheck-workspace-exists",
+            "properties": {
+                "mode": "Incremental",
+                "expressionEvaluationOptions": {
+                    "scope": "inner"
+                },
+                "parameters": {
+                    "WorkspaceResourceId": {
+                        "value": "[variables('workspaceResourceId')]"
+                    }
+                },
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "WorkspaceResourceId": {
+                            "type": "string"
+                        }
+                    },
+                    "resources": [],
+                    "outputs": {
+                        "workspaceId": {
+                            "type": "string",
+                            "value": "[reference(parameters('WorkspaceResourceId'), '2023-09-01', 'Full').properties.customerId]"
+                        }
+                    }
+                }
+            }
+        },
+        {
             "type": "Microsoft.OperationalInsights/workspaces",
             "apiVersion": "2023-09-01",
             "name": "[parameters('WorkspaceName')]",
@@ -142,7 +183,8 @@
             "location": "[parameters('WorkspaceLocation')]",
             "dependsOn": [
                 "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "plan": {
                 "name": "[concat('SecurityInsights(', parameters('WorkspaceName'), ')')]",
                 "publisher": "Microsoft",
@@ -159,10 +201,12 @@
             "name": "[concat(parameters('WorkspaceName'), '/Microsoft.SecurityInsights/default')]",
             "dependsOn": [
                 "[resourceId('Microsoft.OperationsManagement/solutions', concat('SecurityInsights(', parameters('WorkspaceName'), ')'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {}
         },
         {
+            "dependsOn": ["[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "type": "Microsoft.Storage/storageAccounts",
             "apiVersion": "2023-05-01",
             "name": "[variables('storageAccountName')]",
@@ -181,7 +225,8 @@
             "name": "[concat(variables('storageAccountName'), '/default')]",
             "dependsOn": [
                 "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
-            ]
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"]
         },
         {
             "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
@@ -189,9 +234,11 @@
             "name": "[concat(variables('storageAccountName'), '/default/', variables('tableName'))]",
             "dependsOn": [
                 "[resourceId('Microsoft.Storage/storageAccounts/tableServices', variables('storageAccountName'), 'default')]"
-            ]
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"]
         },
         {
+            "dependsOn": ["[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "condition": "[variables('enableDce')]",
             "type": "Microsoft.Insights/dataCollectionEndpoints",
             "apiVersion": "2023-03-11",
@@ -212,7 +259,8 @@
             "dependsOn": [
                 "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
                 "[resourceId('Microsoft.OperationsManagement/solutions', concat('SecurityInsights(', parameters('WorkspaceName'), ')'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "schema": {
                     "name": "[variables('FeedsTableName')]",
@@ -239,7 +287,8 @@
             "dependsOn": [
                 "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName'))]",
                 "[resourceId('Microsoft.OperationalInsights/workspaces/tables', parameters('WorkspaceName'), variables('FeedsTableName'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "kind": "Direct",
             "properties": {
                 "description": "DCR for SOCRadar Feeds indicator logging",
@@ -283,7 +332,8 @@
             "dependsOn": [
                 "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
                 "[resourceId('Microsoft.OperationsManagement/solutions', concat('SecurityInsights(', parameters('WorkspaceName'), ')'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "schema": {
                     "name": "[variables('AuditTableName')]",
@@ -312,7 +362,8 @@
             "dependsOn": [
                 "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName'))]",
                 "[resourceId('Microsoft.OperationalInsights/workspaces/tables', parameters('WorkspaceName'), variables('AuditTableName'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "kind": "Direct",
             "properties": {
                 "description": "DCR for SOCRadar Feeds audit log ingestion",
@@ -351,12 +402,14 @@
             }
         },
         {
+            "dependsOn": ["[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
             "apiVersion": "2023-01-31",
             "name": "[variables('managedIdentityName')]",
             "location": "[resourceGroup().location]"
         },
         {
+            "dependsOn": ["[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "type": "Microsoft.Web/serverfarms",
             "apiVersion": "2023-12-01",
             "name": "[variables('hostingPlanName')]",
@@ -378,7 +431,8 @@
             "kind": "web",
             "dependsOn": [
                 "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "Application_Type": "web",
                 "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
@@ -407,7 +461,8 @@
                 "[resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName'))]",
                 "[resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName'))]",
                 "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
                 "httpsOnly": true,
@@ -446,7 +501,7 @@
                         },
                         {
                             "name": "WEBSITE_RUN_FROM_PACKAGE",
-                            "value": "[parameters('PackageUri')]"
+                            "value": "1"
                         },
                         {
                             "name": "AZURE_CLIENT_ID",
@@ -528,7 +583,8 @@
             "dependsOn": [
                 "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
                 "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('SentinelContributorRoleId'))]",
                 "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
@@ -543,7 +599,8 @@
             "dependsOn": [
                 "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('StorageTableDataContributorRoleId'))]",
                 "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
@@ -559,7 +616,8 @@
             "dependsOn": [
                 "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
                 "[resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
                 "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
@@ -575,7 +633,8 @@
             "dependsOn": [
                 "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
                 "[resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
                 "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
@@ -591,7 +650,8 @@
             "kind": "shared",
             "dependsOn": [
                 "[variables('workspaceResourceId')]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "displayName": "SOCRadar Threat Feeds Dashboard",
                 "serializedData": "{\"version\":\"Notebook/1.0\",\"items\":[{\"type\":1,\"content\":{\"json\":\"## SOCRadar Threat Feeds Dashboard\\nThreat intelligence indicator analytics from SOCRadar feeds.\"},\"name\":\"header\"},{\"type\":1,\"content\":{\"json\":\"---\\n### Overview\"},\"name\":\"overview-header\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| count\\n| project Count\",\"size\":4,\"title\":\"Total Indicators\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"tiles\",\"tileSettings\":{\"titleContent\":{\"columnMatch\":\"Count\",\"formatter\":12,\"formatOptions\":{\"palette\":\"auto\"}},\"showBorder\":false}},\"customWidth\":\"25\",\"name\":\"total-indicators\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=dcount(CollectionName)\\n| project Count\",\"size\":4,\"title\":\"Active Collections\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"tiles\",\"tileSettings\":{\"titleContent\":{\"columnMatch\":\"Count\",\"formatter\":12,\"formatOptions\":{\"palette\":\"auto\"}},\"showBorder\":false}},\"customWidth\":\"25\",\"name\":\"active-collections\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=dcount(IndicatorType)\\n| project Count\",\"size\":4,\"title\":\"Indicator Types\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"tiles\",\"tileSettings\":{\"titleContent\":{\"columnMatch\":\"Count\",\"formatter\":12,\"formatOptions\":{\"palette\":\"auto\"}},\"showBorder\":false}},\"customWidth\":\"25\",\"name\":\"indicator-types\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| where TimeGenerated > ago(24h)\\n| count\\n| project Count\",\"size\":4,\"title\":\"Last 24 Hours\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"tiles\",\"tileSettings\":{\"titleContent\":{\"columnMatch\":\"Count\",\"formatter\":12,\"formatOptions\":{\"palette\":\"auto\"}},\"showBorder\":false}},\"customWidth\":\"25\",\"name\":\"last-24h\"},{\"type\":1,\"content\":{\"json\":\"---\\n### Indicator Analysis\"},\"name\":\"analysis-header\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=count() by IndicatorType\\n| order by Count desc\",\"size\":2,\"title\":\"Indicators by Type\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"piechart\"},\"customWidth\":\"50\",\"name\":\"indicators-by-type\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=count() by CollectionName\\n| order by Count desc\",\"size\":2,\"title\":\"Indicators by Collection\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"barchart\"},\"customWidth\":\"50\",\"name\":\"indicators-by-collection\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=count() by bin(TimeGenerated, 1h)\\n| order by TimeGenerated asc\",\"size\":0,\"title\":\"Indicators Over Time\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"timechart\"},\"name\":\"indicators-timeline\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| summarize Count=count() by CollectionName\\n| top 10 by Count desc\",\"size\":2,\"title\":\"Top 10 Collections\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"barchart\"},\"name\":\"top-collections\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_CL\\n| project TimeGenerated, CollectionName, IndicatorType, IndicatorValue, Source\\n| order by TimeGenerated desc\\n| take 50\",\"size\":0,\"title\":\"Recent Indicators\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"table\"},\"name\":\"recent-indicators\"},{\"type\":1,\"content\":{\"json\":\"---\\n### Audit Monitoring\"},\"name\":\"audit-header\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_Audit_CL\\n| summarize Count=count() by Status\\n| order by Count desc\",\"size\":2,\"title\":\"Import Run Status\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"piechart\"},\"customWidth\":\"50\",\"name\":\"audit-status\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_Audit_CL\\n| summarize Created=sum(IndicatorsCreated), Skipped=sum(IndicatorsSkipped) by bin(TimeGenerated, 1h)\\n| order by TimeGenerated asc\",\"size\":0,\"title\":\"Indicators Created vs Skipped\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"timechart\"},\"customWidth\":\"50\",\"name\":\"created-vs-skipped\"},{\"type\":3,\"content\":{\"version\":\"KqlItem/1.0\",\"query\":\"SOCRadar_Feeds_Audit_CL\\n| project TimeGenerated, Status, CollectionsProcessed, IndicatorsCreated, IndicatorsSkipped, DurationMs, ErrorMessage\\n| order by TimeGenerated desc\\n| take 20\",\"size\":0,\"title\":\"Recent Import Runs\",\"queryType\":0,\"resourceType\":\"microsoft.operationalinsights/workspaces\",\"visualization\":\"table\"},\"name\":\"recent-runs\"}],\"isLocked\":false,\"fallbackResourceIds\":[\"/subscriptions/{Subscription}/resourceGroups/{ResourceGroup}/providers/Microsoft.OperationalInsights/workspaces/{Workspace}\"]}",
@@ -608,7 +668,8 @@
             "dependsOn": [
                 "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
                 "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('WebsiteContributorRoleId'))]",
                 "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
@@ -630,12 +691,15 @@
             "dependsOn": [
                 "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
                 "[guid(resourceId('Microsoft.Web/sites', variables('functionAppName')), variables('managedIdentityName'), variables('WebsiteContributorRoleId'))]"
-            ],
+            ,
+                "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "azCliVersion": "2.50.0",
+                "forceUpdateTag": "[parameters('_packagePushTimestamp')]",
                 "retentionInterval": "PT1H",
-                "timeout": "PT10M",
-                "scriptContent": "set -e; code=$(curl -s -o /dev/null -w '%{http_code}' -L \"$PACKAGE_URL\"); [ \"$code\" = 200 ] || { echo \"package URL returned HTTP $code\"; exit 1; }; echo 'waiting 90s for role assignments to propagate before the first run'; sleep 90; az functionapp restart --name $FA_NAME --resource-group $RG_NAME; for i in $(seq 1 24); do sleep 10; n=$(az rest --method get --url \"https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$RG_NAME/providers/Microsoft.Web/sites/$FA_NAME/functions?api-version=2023-12-01\" --query 'length(value)' -o tsv 2>/dev/null || echo 0); [ \"$n\" -ge 1 ] && { echo \"$n function(s) indexed; run_on_startup triggers the first import\"; exit 0; }; done; echo 'no function was indexed within 4 minutes; the package did not load'; exit 1",
+                "timeout": "PT30M",
+                "cleanupPreference": "OnSuccess",
+                "scriptContent": "set -e; code=$(curl -s -o /dev/null -w '%{http_code}' -L \"$PACKAGE_URL\"); [ \"$code\" = 200 ] || { echo \"package URL returned HTTP $code\"; exit 1; }; curl -sSL -o /tmp/package.zip \"$PACKAGE_URL\"; python3 -c \"import zipfile;zipfile.ZipFile('/tmp/package.zip').testzip()\" >/dev/null 2>&1 || { echo 'downloaded package is not a readable zip'; exit 1; }; echo \"package downloaded: $(stat -c%s /tmp/package.zip) bytes\"; echo 'reading the app storage connection while the role assignment propagates'; CONN=; for wait in $(seq 1 8); do CONN=$(az functionapp config appsettings list --name \"$FA_NAME\" --resource-group \"$RG_NAME\" --query \"[?name=='AzureWebJobsStorage'].value\" -o tsv 2>/dev/null || true); [ -n \"$CONN\" ] && break; echo \"attempt $wait: the app settings are not readable yet\"; sleep 15; done; [ -n \"$CONN\" ] || { echo 'the app settings stayed unreadable for two minutes: the Website Contributor assignment never became effective'; exit 1; }; SA=$(printf '%s' \"$CONN\" | sed -n 's/.*AccountName=\\([^;]*\\).*/\\1/p'); [ -n \"$SA\" ] || { echo 'the app storage connection carries no AccountName'; exit 1; }; echo \"staging the package in the app storage account $SA\"; pointer() { az functionapp config appsettings list --name \"$FA_NAME\" --resource-group \"$RG_NAME\" --query \"[?name=='WEBSITE_RUN_FROM_PACKAGE'].value\" -o tsv 2>/dev/null; }; shape() { case \"$(pointer)\" in *function-releases*) echo blob;; 1) echo one;; '') echo missing;; *) echo other;; esac; }; staged() { [ \"$(shape)\" = blob ]; }; count() { az rest --method get --url \"https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$RG_NAME/providers/Microsoft.Web/sites/$FA_NAME/functions?api-version=2023-12-01\" --query 'length(value)' -o tsv 2>/dev/null || echo 0; }; indexed() { n=$(count); case \"$n\" in ''|*[!0-9]*) return 1;; esac; [ \"$n\" -ge 1 ]; }; BLOB=package-$(date -u +%Y%m%d%H%M%S).zip; for attempt in $(seq 1 6); do az storage container create --name function-releases --connection-string \"$CONN\" -o none >/dev/null 2>&1 || true; if az storage blob upload --container-name function-releases --name \"$BLOB\" --file /tmp/package.zip --overwrite --connection-string \"$CONN\" -o none >/dev/null 2>&1; then SAS=$(az storage blob generate-sas --container-name function-releases --name \"$BLOB\" --permissions r --expiry 2099-12-31T00:00:00Z --connection-string \"$CONN\" -o tsv 2>/dev/null); { [ -n \"$SAS\" ] && az functionapp config appsettings set --name \"$FA_NAME\" --resource-group \"$RG_NAME\" --settings \"WEBSITE_RUN_FROM_PACKAGE=https://$SA.blob.core.windows.net/function-releases/$BLOB?$SAS\" -o none >/dev/null 2>&1; } || echo \"attempt $attempt: no read token was issued for the staged package\"; else echo \"attempt $attempt: the package upload failed; the readings decide\"; fi; echo \"attempt $attempt: pointer=$(shape) functions=$(count)\"; staged && break; sleep 30; done; staged || { echo 'the package pointer never became a blob under function-releases: the app would have no code to reload'; exit 1; }; echo 'restarting the app so the host reloads the staged package'; az functionapp restart --name \"$FA_NAME\" --resource-group \"$RG_NAME\" -o none >/dev/null 2>&1 || echo 'the restart call did not go through; the readings decide'; for i in $(seq 1 40); do sleep 15; indexed && { echo \"$(count) function(s) indexed after $((i * 15))s; run_on_startup triggers the first import\"; exit 0; }; done; echo 'the package is staged but no function was indexed in 10 minutes'; exit 1",
                 "environmentVariables": [
                     {
                         "name": "FA_NAME",
