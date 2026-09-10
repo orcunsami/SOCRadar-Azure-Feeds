@@ -102,12 +102,19 @@ pointer_shape() {  # pointer_shape <rg>
     local rg="$1" app v
     app=$(az functionapp list -g "$rg" --query "[0].name" -o tsv 2>/dev/null)
     [ -n "$app" ] || { echo "no-app"; return; }
-    v=$(az functionapp config appsettings list -g "$rg" -n "$app" \
-        --query "[?name=='WEBSITE_RUN_FROM_PACKAGE'].value" -o tsv 2>/dev/null)
+    # An empty read is "could not read", not "missing": on 10 Sep 2026 one read
+    # came back empty on an app whose pointer was a function-releases blob, and
+    # the path was reported red. Read up to three times, then say which it was.
+    local rc=1 i
+    for i in 1 2 3; do
+        v=$(az functionapp config appsettings list -g "$rg" -n "$app" \
+            --query "[?name=='WEBSITE_RUN_FROM_PACKAGE'].value" -o tsv 2>/dev/null) && rc=0 && break
+        sleep 10
+    done
     case "$v" in
         *function-releases*) echo blob ;;
         1) echo one ;;
-        "") echo missing ;;
+        "") [ "$rc" = 0 ] && echo missing || echo unreadable ;;
         *) echo other ;;
     esac
 }
