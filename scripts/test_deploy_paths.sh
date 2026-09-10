@@ -19,9 +19,9 @@
 #                   from the deploymentScript.
 #
 # Four paths:
-#   A  missing workspace, defaults        -> fails, resource group stays EMPTY
-#   B  DeployNewWorkspace=true            -> succeeds, guard SKIPPED, functions INDEXED
-#   C  existing workspace, defaults       -> guard SUCCEEDS and resolves customerId
+#   A  missing workspace, DeployNewWorkspace=false -> fails, resource group stays EMPTY
+#   B  defaults (one click, new name)       -> succeeds, guard SKIPPED, functions INDEXED
+#   C  existing workspace, DeployNewWorkspace=false -> guard SUCCEEDS and resolves customerId
 #   D  redeploy of B                      -> succeeds AND the app still has functions
 #
 # B and D assert three things, none of them the provisioning state: the function
@@ -140,8 +140,8 @@ az group create -n "$RG_APP" -l "$LOCATION" -o none
 az group create -n "$RG_C"   -l "$LOCATION" -o none
 
 # --- A: the customer's typo, defaults left alone --------------------------------------
-echo "[2/5] Path A: missing workspace with the parameters at their defaults ..."
-deploy "$RG_APP" path-a WorkspaceName="$MISSING"
+echo "[2/5] Path A: missing workspace with DeployNewWorkspace=false ..."
+deploy "$RG_APP" path-a WorkspaceName="$MISSING" DeployNewWorkspace=false
 state=$(az deployment group show -g "$RG_APP" -n path-a --query properties.provisioningState -o tsv 2>/dev/null)
 left=$(az resource list -g "$RG_APP" --query "length(@)" -o tsv 2>/dev/null)
 steps=$(failed_step "$RG_APP" path-a)
@@ -157,8 +157,8 @@ printf '%s' "$steps" | grep -q 'precheck-workspace-exists' \
     || row "A blames the precheck" FAIL "failed step(s) were: ${steps:-<none read>}"
 
 # --- B: greenfield, and the package has to actually load -------------------------------
-echo "[3/5] Path B: DeployNewWorkspace=true ..."
-deploy "$RG_APP" path-b WorkspaceName="$WS" DeployNewWorkspace=true
+echo "[3/5] Path B: new workspace name with the parameters at their defaults ..."
+deploy "$RG_APP" path-b WorkspaceName="$WS"
 state=$(az deployment group show -g "$RG_APP" -n path-b --query properties.provisioningState -o tsv 2>/dev/null)
 steps=$(failed_step "$RG_APP" path-b)
 [ "$state" = Succeeded ] \
@@ -183,9 +183,9 @@ s=$(survives_restart "$RG_APP")
     || row "B still serves after a restart" FAIL "host answered '$s' - the install works until the first restart"
 
 # --- C: the guard's success branch, which B never exercises ----------------------------
-echo "[4/5] Path C: existing workspace, defaults ..."
+echo "[4/5] Path C: existing workspace, DeployNewWorkspace=false ..."
 az monitor log-analytics workspace create -g "$RG_C" -n "$WS" -l "$LOCATION" --retention-time 30 -o none 2>/dev/null
-deploy "$RG_C" path-c WorkspaceName="$WS"
+deploy "$RG_C" path-c WorkspaceName="$WS" DeployNewWorkspace=false
 state=$(az deployment group show -g "$RG_C" -n path-c --query properties.provisioningState -o tsv 2>/dev/null)
 steps=$(failed_step "$RG_C" path-c)
 guard_state=$(az deployment operation group list -g "$RG_C" -n path-c \

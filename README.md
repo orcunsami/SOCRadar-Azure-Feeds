@@ -29,7 +29,7 @@ az deployment group create \
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
 | `WorkspaceName` | Yes | - | Microsoft Sentinel workspace name |
-| `DeployNewWorkspace` | No | `false` | Create `WorkspaceName` instead of using an existing one. Set `true` for a greenfield deploy into an empty resource group; leave `false` to attach to your existing workspace without touching its pricing tier, retention or daily cap. |
+| `DeployNewWorkspace` | No | `true` | Create `WorkspaceName` when it does not exist yet; an existing workspace under that name is left untouched (pricing tier, retention, daily cap). Set `false` when the workspace must already exist, so a misspelled name fails before anything is created. An existing workspace in another region than `WorkspaceLocation` fails with `InvalidResourceLocation`. |
 | `WorkspaceLocation` | No | RG location | Region of the workspace |
 | `SocradarApiKey` | Yes | - | SOCRadar Platform API key |
 | `IncludeAPTBlockHash` | No | true | Include APT Recommended Block Hash feed (~500 indicators) |
@@ -57,7 +57,7 @@ az monitor log-analytics workspace show -g <resource-group> -n <workspace> \
 If `lastSkuUpdate` lines up with when you deployed this integration and the tier isn't the one
 you picked, reset your commitment tier from **Log Analytics workspaces > Usage and estimated
 costs > Pricing tier**. The current template states no workspace-level settings at all, so
-redeploying -- even with `DeployNewWorkspace=true` set by mistake -- cannot change its pricing
+redeploying -- with `DeployNewWorkspace` at its default `true` -- cannot change its pricing
 tier, retention or daily cap.
 
 Redeploy the template over an existing installation to pick up the `IndicatorsFailed` and `CollectionsFailed` audit columns; until then the data collection rule drops those two columns silently.
