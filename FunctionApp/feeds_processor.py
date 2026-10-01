@@ -1,6 +1,6 @@
 """
 SOCRadar Feeds Processor
-Fetches feeds from SOCRadar API, filters by checkpoint, uploads to Sentinel TI in batches.
+Fetches feeds from SOCRadar API, filters by checkpoint, uploads to Microsoft Sentinel TI in batches.
 """
 
 import os
@@ -180,8 +180,12 @@ class FeedsProcessor:
         params = {"key": self.api_key, "v": "2"}
         resp = None
         for attempt in range(1, MAX_ATTEMPTS + 1):
+            remaining = self._remaining()
+            if remaining is not None and remaining <= 0:
+                raise RuntimeError(f"Time budget exhausted before fetching {collection_id}")
             try:
-                resp = requests.get(url, params=params, timeout=60)
+                timeout = 60 if remaining is None else max(1, min(60, remaining))
+                resp = requests.get(url, params=params, timeout=timeout)
             except Exception as e:
                 # requests embeds the full URL, key included, in its message.
                 raise RuntimeError(
@@ -275,7 +279,7 @@ class FeedsProcessor:
     # -------------------------------------------------------------- upload
 
     def upload_batch(self, indicators: List[dict]) -> Tuple[int, int, int]:
-        """Upload one batch to Sentinel TI.
+        """Upload one batch to Microsoft Sentinel TI.
 
         Returns (created, skipped, failed). The last two are not the same
         thing. Skipped indicators came back inside a successful response:
@@ -306,7 +310,7 @@ class FeedsProcessor:
                     logger.warning("Upload batch had %d rejected indicator(s): %s",
                                    skipped, str(errors[:3])[:500])
                 return created, skipped, 0
-            if not self._sleep_before_retry(resp, attempt, "Sentinel upload"):
+            if not self._sleep_before_retry(resp, attempt, "Microsoft Sentinel upload"):
                 break
 
         logger.error("Upload failed after %d attempt(s): %d %s",
@@ -359,7 +363,11 @@ class FeedsProcessor:
                 continue
             stix_indicators.append(indicator)
             if self.enable_feeds_table:
-                feed_logs.append(StixBuilder.build_feed_log(item, col))
+                # Same index as stix_indicators; None = sent to Sentinel TI
+                # again as an overlap, no new table row.
+                seen = parse_feed_datetime(item.get("latest_seen_date"))
+                is_new = checkpoint is None or (seen is not None and seen > checkpoint)
+                feed_logs.append(StixBuilder.build_feed_log(item, col) if is_new else None)
         if result["unsupported"]:
             logger.warning("Step 2.6: [%s] %d indicator(s) have an unsupported type or hash length and were not sent",
                            name, result["unsupported"])
@@ -389,7 +397,7 @@ class FeedsProcessor:
                 logger.error("Step 2.7: [%s] Batch %d/%d never reached Microsoft Sentinel; holding the checkpoint at %s",
                              name, batch_num, total_batches, format_checkpoint(pinned))
                 break
-            delivered_logs.extend(feed_logs[i:i + BATCH_SIZE])
+            delivered_logs.extend(log for log in feed_logs[i:i + BATCH_SIZE] if log)
             logger.info("Step 2.7: [%s] Batch %d result: %d created, %d skipped", name, batch_num, created, skipped)
 
         if self.enable_feeds_table and delivered_logs and self.dcr_logger:
@@ -400,6 +408,16 @@ class FeedsProcessor:
 
         if result["failed"]:
             self.save_checkpoint(cid, name, pinned, len(items), result["created"], result["failed"])
+        elif not result["feeds_table_ok"]:
+            # The table has no other way to catch up: its rows are written only
+            # for indicators newer than the checkpoint. Moving it would make
+            # the next run skip them for good. Re-sending to Microsoft Sentinel
+            # is an update, so holding costs little. On a first run there is no
+            # checkpoint to hold, and pinning one would also drop undated rows.
+            if checkpoint is not None:
+                self.save_checkpoint(cid, name, pinned, len(items), result["created"])
+            logger.error("Step 2.10: [%s] Checkpoint held at %s so the next run writes the table rows again", name,
+                         format_checkpoint(pinned) if checkpoint is not None else "none (first run)")
         else:
             self.save_checkpoint(cid, name, advance_to, len(items), result["created"])
             logger.info("Step 2.10: [%s] Checkpoint advanced to %s", name, format_checkpoint(advance_to))
@@ -412,8 +430,7 @@ class FeedsProcessor:
             "indicators_unsupported": 0, "errors": [],
         }
         if not self.collections:
-            logger.warning("No collections configured")
-            return totals
+            raise RuntimeError("No collections configured: enable a recommended collection or set CustomCollectionIds")
 
         n = len(self.collections)
         budget = (self.time_budget_seconds / n) if self.time_budget_seconds > 0 else 0
@@ -435,7 +452,7 @@ class FeedsProcessor:
             if r["failed"] or not r["feeds_table_ok"]:
                 totals["collections_partial"] += 1
                 what = (f"{r['failed']} indicator(s) did not reach Microsoft Sentinel and will be sent again on the next run"
-                        if r["failed"] else "feeds table ingestion failed")
+                        if r["failed"] else "feeds table ingestion failed, checkpoint held, rows will be written again on the next run")
                 totals["errors"].append(f"{col['name']}: {what}")
             else:
                 totals["collections_processed"] += 1

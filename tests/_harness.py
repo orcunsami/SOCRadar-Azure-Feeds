@@ -54,6 +54,7 @@ class FakeRequests:
         self.get_responses = list(get_responses or [])
         self.post_responses = list(post_responses or [])
         self.get_calls = []
+        self.get_timeouts = []
         self.post_calls = []
 
     def _next(self, queue, calls, record):
@@ -68,6 +69,7 @@ class FakeRequests:
         return item
 
     def get(self, url, **kwargs):
+        self.get_timeouts.append(kwargs.get("timeout"))
         return self._next(self.get_responses, self.get_calls, (url, kwargs.get("params")))
 
     def post(self, url, **kwargs):

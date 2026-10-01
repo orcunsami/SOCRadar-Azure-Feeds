@@ -75,8 +75,20 @@ for r in template["resources"]:
         status_desc = next(c.get("description", "") for c in r["properties"]["schema"]["columns"] if c["name"] == "Status")
 check("PartialSuccess" in status_desc, "Status column description does not list PartialSuccess: %r" % status_desc)
 
+# The dashboard is where a customer sees PartialSuccess: the run table must
+# show the two counters that explain it.
+workbook = next((r for r in template["resources"] if r["type"] == "microsoft.insights/workbooks"
+                 or r["type"] == "Microsoft.Insights/workbooks"), None)
+runs_query = ""
+if workbook:
+    for it in json.loads(workbook["properties"]["serializedData"])["items"]:
+        if it.get("name") == "recent-runs":
+            runs_query = it["content"]["query"]
+check("CollectionsFailed" in runs_query and "IndicatorsFailed" in runs_query,
+      "Recent Import Runs does not show the failure counters: %r" % runs_query)
+
 if failures:
     for line in failures:
         print("FAIL " + line)
     sys.exit(1)
-print("audit schema matches the code: OK (%d checks)" % 7)
+print("audit schema matches the code: OK (%d checks)" % 8)

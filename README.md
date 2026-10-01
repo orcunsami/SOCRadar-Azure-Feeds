@@ -21,7 +21,7 @@ az deployment group create \
 
 ## Prerequisites
 
-- Microsoft Sentinel workspace **in the same resource group** you deploy to
+- A Log Analytics workspace named `WorkspaceName`. It is created when missing (`DeployNewWorkspace`, default `true`). To use an existing one, set `DeployNewWorkspace=false`; it must be in the resource group you deploy to.
 - SOCRadar Platform API Key
 
 ## Parameters
@@ -33,13 +33,28 @@ az deployment group create \
 | `WorkspaceLocation` | No | RG location | Region of the workspace |
 | `SocradarApiKey` | Yes | - | SOCRadar Platform API key |
 | `IncludeAPTBlockHash` | No | true | Include APT Recommended Block Hash feed (~500 indicators) |
-| `CustomCollectionIds` | No | "" | Comma-separated custom feed collection UUIDs |
+| `CustomCollectionIds` | No | "" | Comma-separated collection UUIDs. This is also how you enable the other recommended collections (see below). At least one collection must be enabled, or every run is recorded as `Failed`. |
 | `CustomCollectionNames` | No | "" | Comma-separated custom collection names |
 | `InitialLookbackDays` | No | 30 | First run of a collection sends only indicators last seen within this many days. `0` sends the whole feed. |
-| `PollingIntervalMinutes` | No | 60 | Polling interval (5-1440 minutes). 60 and above is rounded down to whole hours. |
+| `PackageUri` | No | release `v1.0.0` | URL of the Function App package. Leave the default unless you host the package yourself. |
+| `PollingIntervalMinutes` | No | 60 | Polling interval (5-1440 minutes). 60 and above is rounded down to whole hours. The schedule is a cron expression, so pick a value that divides 60 (minutes) or 24 (hours): 45 minutes runs at :00 and :45, and 5 hours runs at 0, 5, 10, 15, 20 and then again after 4 hours. |
 | `EnableFeedsTable` | No | true | Store indicators in SOCRadar_Feeds_CL |
 | `EnableAuditLogging` | No | true | Log runs to SOCRadar_Feeds_Audit_CL |
 | `EnableWorkbook` | No | true | Deploy the dashboard (needs `EnableFeedsTable`) |
+
+## Recommended collections
+
+Only the APT Block Hash feed has a deploy-time switch. To enable another one, put its ID in `CustomCollectionIds`.
+
+| Collection | ID |
+|------------|----|
+| SOCRadar-APT-Recommended-Block-IP | `4d7a69ce6e7c49ff8c916da5d7343916` |
+| SOCRadar-APT-Recommended-Block-Hash | `0cb06558728b4dc296019c93b78360d1` |
+| SOCRadar-APT-Recommended-Block-Domain | `9079dcc2f96e4835bb807026d4cdcc86` |
+| SOCRadar-Recommended-Block-Hash | `8742cab86cc4414092217f87298e94a1` |
+| SOCRadar-Attackers-Recommended-Block-IP | `e89ab3b58e174b8c82767088d8e66cae` |
+| SOCRadar-Attackers-Recommended-Block-Domain | `606a83358bbe466d8c3885e37fa595b7` |
+| SOCRadar-Recommended-Phishing-Global | `03cc11380b5d4a77a0d0cc2a7c568230` |
 
 ## Existing installations
 
@@ -108,20 +123,23 @@ register that provider if you want the smart-detection alert.
 
 ## What Gets Deployed
 
+- **Log Analytics workspace** (when `DeployNewWorkspace` is `true` and it does not exist) with Microsoft Sentinel onboarded
 - **Azure Function App** (Python 3.11, Consumption plan) - Polls SOCRadar feeds on schedule
 - **Application Insights** - Step-by-step logging (workspace-based, 30 day retention)
-- **User-Assigned Managed Identity** - Access to Microsoft Sentinel and Storage, no stored Azure credentials
-- **Storage Account** - `FeedState` table holding one checkpoint per collection
+- **User-Assigned Managed Identity** - no stored Azure credentials. Roles: Microsoft Sentinel Contributor on the workspace, Storage Table Data Contributor on the storage account, Monitoring Metrics Publisher on each DCR, Website Contributor on the Function App
+- **Storage Account** - `FeedState` table holding one checkpoint per collection, and the `function-releases` container holding the package
 - **DCE + DCR + Custom Tables** (optional) - SOCRadar_Feeds_CL and SOCRadar_Feeds_Audit_CL
 - **Workbook** (optional) - SOCRadar Threat Feeds Dashboard
-- **Deployment Script** - Checks the package loaded and triggers the first import
+- **Deployment Script** - Downloads the package, stages it in the storage account, restarts the app and waits until a function is indexed (see above)
 
 ## How a run works
 
 1. Each configured collection is fetched from the SOCRadar feed API.
 2. Indicators last seen after the collection's checkpoint (minus a 48 hour overlap) are sent to Microsoft Sentinel TI in batches of 100. On the first run the window is `InitialLookbackDays`.
 3. The checkpoint moves to the newest `latest_seen_date` that was delivered. If a batch never reaches Microsoft Sentinel the checkpoint stays where it was and the run is recorded as `PartialSuccess`; the next run sends those indicators again.
-4. Indicator ids are stable (derived from type, value and collection), so re-sending an indicator updates the existing record instead of creating a copy.
+4. Indicator ids are stable (derived from type, value and collection), so re-sending an indicator updates the existing record instead of creating a copy. `IndicatorsCreated` in the audit table counts indicators sent, which includes those updates.
+5. `SOCRadar_Feeds_CL` gets a row only for indicators last seen after the checkpoint (every indicator on a collection's first run), so the 48 hour overlap does not repeat rows there. The flip side: an indicator that reaches the feed late, with a `latest_seen_date` older than the checkpoint, is still sent to Microsoft Sentinel TI but gets no row in `SOCRadar_Feeds_CL`. Sentinel TI is the complete list; the table and dashboard count indicators newer than the checkpoint.
+6. If the write to `SOCRadar_Feeds_CL` fails (for example a 403 right after deploy, while the DCR role assignment is still propagating), the checkpoint is held, the run is recorded as `PartialSuccess`, and the next run sends the indicators to Microsoft Sentinel TI again (an update) and writes the missing rows. The cost: until the table works, every run re-sends the whole window to Microsoft Sentinel TI. Rows that did land in a partly failed write can appear twice; the dashboard counts `dcount(IndicatorValue)`.
 
 Indicators with an unsupported type or hash length are counted and skipped, not sent as a guessed type.
 
@@ -148,7 +166,7 @@ The deployment script verifies that the package URL answers and that the functio
 |--------|---------|
 | `Success` | every collection was delivered completely |
 | `PartialSuccess` | at least one collection failed or lost indicators; `ErrorMessage` says which. Lost indicators are sent again on the next run |
-| `Failed` | the run itself failed before any collection completed |
+| `Failed` | the run itself failed before any collection completed, or no collection is configured |
 
 ### Managing Collections
 
@@ -180,6 +198,7 @@ traces
 ```bash
 python3 tests/run_all.py        # unit tests, no Azure needed
 python3 tests/mutate.py         # proves the tests catch the bugs they exist for
+TEST_SUBSCRIPTION_ID=<id> bash scripts/test_deploy_paths.sh   # live deploy paths; <id> must be the active az subscription
 python3 scripts/build_package.py --out dist/FunctionApp.zip --deps-from <released FunctionApp.zip>
 ```
 

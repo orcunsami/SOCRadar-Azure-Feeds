@@ -29,6 +29,11 @@ if [ -z "$SUBSCRIPTION_ID" ] || [ -z "$RESOURCE_GROUP" ] || [ -z "$WORKSPACE_NAM
     exit 1
 fi
 case "$RESOURCE_GROUP" in *prod*|*Prod*|*PROD*) echo "ERROR: refusing to reset a resource group named like production: $RESOURCE_GROUP"; exit 1;; esac
+ACTIVE_SUB=$(az account show --query id -o tsv 2>/dev/null)
+if [ "$ACTIVE_SUB" != "$SUBSCRIPTION_ID" ]; then
+    echo "ERROR: az is on subscription '${ACTIVE_SUB:-none}' but SUBSCRIPTION_ID is '$SUBSCRIPTION_ID'"
+    exit 1
+fi
 
 echo "=== FEEDS FUNCTION APP - FAST RESET ==="
 echo "  Workspace:      $WORKSPACE_NAME"

@@ -83,6 +83,11 @@ if [ -z "$ACCOUNT" ]; then
     exit 1
 fi
 echo "Logged in as: $ACCOUNT"
+ACTIVE_SUB=$(az account show --query id -o tsv 2>/dev/null)
+if [ "$ACTIVE_SUB" != "$SUBSCRIPTION_ID" ]; then
+    echo "ERROR: az is on subscription '${ACTIVE_SUB:-none}' but SUBSCRIPTION_ID is '$SUBSCRIPTION_ID'"
+    exit 1
+fi
 echo ""
 
 # Step 1: Deploy ARM template

@@ -15,8 +15,8 @@
 #   EXP-AZURE-0202  Azure stopped accepting the CREATE of a Linux consumption
 #                   Function App whose WEBSITE_RUN_FROM_PACKAGE is a redirecting
 #                   URL. The same release URL was accepted at 15:01 and rejected
-#                   at 15:10 on 7 Sep 2026. The package now arrives by zip deploy
-#                   from the deploymentScript.
+#                   at 15:10 on 7 Sep 2026. The package is now staged as a blob
+#                   by the deploymentScript.
 #
 # Four paths:
 #   A  missing workspace, DeployNewWorkspace=false -> fails, resource group stays EMPTY
@@ -33,6 +33,10 @@
 # staged where the host cannot reload it, so ARM keeps reporting a function while
 # the host answers 503 from the next restart onwards. Asserting Succeeded, or
 # even the count alone, would pass both.
+#
+# Usage (deploys into live Azure; the subscription must be the active az one):
+#   TEST_SUBSCRIPTION_ID=<id> bash scripts/test_deploy_paths.sh
+#   optional: TEST_LOCATION, TEST_SOCRADAR_API_KEY, KEEP_RESOURCES
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -48,6 +52,14 @@ RG_APP="rg-feeds-paths-$SFX"
 RG_C="rg-feeds-paths-c-$SFX"
 WS="ws-feeds-paths-$SFX"
 MISSING="ws-does-not-exist-$SFX"
+
+# Every `az` call below runs against whatever subscription is active. Say which
+# one is meant and refuse to continue on any other.
+ACTIVE_SUB=$(az account show --query id -o tsv 2>/dev/null)
+if [ -z "${TEST_SUBSCRIPTION_ID:-}" ] || [ "$ACTIVE_SUB" != "$TEST_SUBSCRIPTION_ID" ]; then
+    echo "ERROR: set TEST_SUBSCRIPTION_ID to the subscription to deploy into; az is on '${ACTIVE_SUB:-none}'"
+    exit 1
+fi
 
 fails=0
 row() {  # row <name> <PASS|FAIL> <detail>
@@ -69,9 +81,18 @@ trap cleanup EXIT
 
 deploy() {  # deploy <rg> <name> <extra params...>
     local rg="$1" name="$2"; shift 2
+    local err rc msg
+    err=$(mktemp)
     az deployment group create -g "$rg" -n "$name" --template-file "$TEMPLATE" \
         --parameters SocradarApiKey="$API_KEY" WorkspaceLocation="$LOCATION" "$@" \
-        -o none 2>/dev/null
+        -o none 2>"$err"
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        msg=$(head -c 800 "$err")
+        echo "  deployment $name failed: ${msg//"$API_KEY"/***}"
+    fi
+    rm -f "$err"
+    return "$rc"
 }
 
 # The only signal that separates a loaded package from a Running empty app.
@@ -119,8 +140,8 @@ pointer_shape() {  # pointer_shape <rg>
     esac
 }
 
-# Orcun's failure was "you said it works and it broke". A package the host
-# cannot reload survives until the first restart, so restart it here.
+# A package the host cannot reload survives until the first restart, so
+# restart it here.
 survives_restart() {  # survives_restart <rg>
     local rg="$1" app code
     app=$(az functionapp list -g "$rg" --query "[0].name" -o tsv 2>/dev/null)
