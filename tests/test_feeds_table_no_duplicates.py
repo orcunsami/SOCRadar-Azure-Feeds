@@ -81,6 +81,37 @@ check(result["collections_partial"] == 1, "the failed second batch was not repor
 check(second == [i["feed"] for i in fresh[:50]],
       "table rows are not the new indicators of the delivered batch: %d rows, first %r" % (len(second), second[:2]))
 
+# Recovery after an upload failure. The checkpoint is held, so the next run
+# selects the same indicators as new again: the rows of the batch that DID land
+# in run 2 are written a second time. Nothing may be lost, and the repeat is
+# bounded to that one batch (README, "How a run works" item 6). This pins the
+# behaviour; a fix that tracks delivered rows across runs should change the
+# expected row count here and the README together.
+table4, dcr4 = FakeTable(), FakeDcrLogger()
+base4 = [item("10.1.0.%d" % n, ts(t0)) for n in range(5)]
+stub = FakeRequests(get_responses=[Response(200, base4)], post_responses=[Response(200, {"errors": []})])
+make_processor(stub, table=table4, sleeps=[], dcr=dcr4).run()
+fresh4 = [item("172.20.%d.%d" % (n // 250, n % 250), ts(t0 + timedelta(hours=1))) for n in range(150)]
+stub = FakeRequests(get_responses=[Response(200, fresh4)],
+                    post_responses=[Response(200, {"errors": []}), Response(500)])
+r2 = make_processor(stub, table=table4, sleeps=[], dcr=dcr4).run()
+check(r2["collections_partial"] == 1, "the failed batch was not reported: %r" % r2)
+landed = len(dcr4.feeds) - len(base4)
+check(landed == 100, "run 2 should have rows for exactly the delivered batch, got %d" % landed)
+stub = FakeRequests(get_responses=[Response(200, fresh4)], post_responses=[Response(200, {"errors": []})])
+r3 = make_processor(stub, table=table4, sleeps=[], dcr=dcr4).run()
+check(r3["collections_processed"] == 1, "recovery run not clean: %r" % r3)
+values = [r["IndicatorValue"] for r in dcr4.feeds[len(base4):]]
+want = {i["feed"] for i in fresh4}
+check(set(values) == want, "recovery lost rows: %d distinct of %d" % (len(set(values)), len(want)))
+repeated = {v for v in values if values.count(v) > 1}
+check(len(values) == 250 and repeated == {i["feed"] for i in fresh4[:100]},
+      "repeat is not bounded to the batch that landed in run 2: %d rows, %d repeated" % (len(values), len(repeated)))
+before = len(dcr4.feeds)
+stub = FakeRequests(get_responses=[Response(200, fresh4)], post_responses=[Response(200, {"errors": []})])
+make_processor(stub, table=table4, sleeps=[], dcr=dcr4).run()
+check(len(dcr4.feeds) == before, "rows kept growing after recovery: +%d" % (len(dcr4.feeds) - before))
+
 if failures:
     for line in failures:
         print("FAIL " + line)

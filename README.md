@@ -140,6 +140,8 @@ register that provider if you want the smart-detection alert.
 4. Indicator ids are stable (derived from type, value and collection), so re-sending an indicator updates the existing record instead of creating a copy. `IndicatorsCreated` in the audit table counts indicators sent, which includes those updates.
 5. `SOCRadar_Feeds_CL` gets a row only for indicators last seen after the checkpoint (every indicator on a collection's first run), so the 48 hour overlap does not repeat rows there. The flip side: an indicator that reaches the feed late, with a `latest_seen_date` older than the checkpoint, is still sent to Microsoft Sentinel TI but gets no row in `SOCRadar_Feeds_CL`. Sentinel TI is the complete list; the table and dashboard count indicators newer than the checkpoint.
 6. If the write to `SOCRadar_Feeds_CL` fails (for example a 403 right after deploy, while the DCR role assignment is still propagating), the checkpoint is held, the run is recorded as `PartialSuccess`, and the next run sends the indicators to Microsoft Sentinel TI again (an update) and writes the missing rows. The cost: until the table works, every run re-sends the whole window to Microsoft Sentinel TI. Rows that did land in a partly failed write can appear twice; the dashboard counts `dcount(IndicatorValue)`.
+7. The same happens after an upload failure. If batch 1 reaches Microsoft Sentinel and batch 2 fails, `SOCRadar_Feeds_CL` already has the rows of batch 1, the checkpoint is held, and the recovery run selects those indicators as new again and writes their rows a second time (measured locally: 100 rows repeated for 150 indicators with 2 batches). Nothing is lost and the repeat is limited to the batches that landed before the failure; Microsoft Sentinel TI is unaffected (same ids). To count exactly, use KQL: `SOCRadar_Feeds_CL | distinct IndicatorValue | count`.
+8. The dashboard tiles use `dcount`, which is approximate. On a live run of 3882 indicators it showed 3878 for the total (about 0.1% off) and 1903 / 1896 for two collections whose exact counts were 1888 / 1915 (about 1% off), so the tiles can differ slightly from the Microsoft Sentinel TI count. The exact count is `SOCRadar_Feeds_CL | distinct IndicatorValue | count`, or per collection `SOCRadar_Feeds_CL | distinct CollectionName, IndicatorValue | summarize count() by CollectionName`. The 4 missing in the total are not explained: an exact distinct count was not measured, and a value that appears in two collections would also lower it.
 
 Indicators with an unsupported type or hash length are counted and skipped, not sent as a guessed type.
 
@@ -199,6 +201,7 @@ traces
 python3 tests/run_all.py        # unit tests, no Azure needed
 python3 tests/mutate.py         # proves the tests catch the bugs they exist for
 TEST_SUBSCRIPTION_ID=<id> bash scripts/test_deploy_paths.sh   # live deploy paths; <id> must be the active az subscription
+bash scripts/portal_test.sh     # live: two imports, judged from SOCRadar_Feeds_Audit_CL and ThreatIntelIndicators (needs scripts/test.config)
 python3 scripts/build_package.py --out dist/FunctionApp.zip --deps-from <released FunctionApp.zip>
 ```
 

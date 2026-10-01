@@ -1,6 +1,9 @@
 #!/bin/bash
 # SOCRadar Feeds Function App - Azure Test Script
 # Tests Function App end-to-end: trigger, check TI indicators, checkpoint, dedup
+# Run state comes from SOCRadar_Feeds_Audit_CL and indicator counts from
+# ThreatIntelIndicators, both read through Log Analytics (exact distinct, no
+# page limit). Ingestion lags by minutes, so every read polls with a ceiling.
 
 set -e
 
@@ -55,56 +58,85 @@ trigger_function() {
         -d '{}'
 }
 
-# Helper: wait for function execution by polling logs
-wait_for_completion() {
-    local MAX_WAIT=${1:-300}
-    local INTERVAL=10
-    local ELAPSED=0
-    local MASTER_KEY
-    MASTER_KEY=$(az functionapp keys list --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "masterKey" -o tsv 2>&1)
-    if [ $? -ne 0 ] || [ -z "$MASTER_KEY" ]; then
-        # Not a timeout and not a success: we never got to look. Say so.
-        echo "  CANNOT MEASURE: master key unavailable (${MASTER_KEY%%$'\n'*})"
-        return 2
-    fi
+# Log Analytics read through ARM. Prints the first row's cells, tab separated;
+# NA when the call failed, EMPTY when the query returned no rows.
+LAW_URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$WORKSPACE_NAME/api/query?api-version=2017-01-01-preview"
+law() {
+    local body out
+    body=$(python3 -c 'import json,sys; print(json.dumps({"query": sys.argv[1]}))' "$1")
+    out=$(az rest --method POST --url "$LAW_URL" --body "$body" -o json 2>/dev/null) || { echo NA; return 0; }
+    printf '%s' "$out" | python3 -c '
+import sys, json
+try:
+    rows = json.load(sys.stdin)["tables"][0]["rows"]
+    print("\t".join(str(c) for c in rows[0]) if rows else "EMPTY")
+except Exception:
+    print("NA")'
+}
+is_num() { [[ "$1" =~ ^[0-9]+$ ]]; }
 
-    echo "  Waiting for function to complete (max ${MAX_WAIT}s)..."
+TI_FILTER="ThreatIntelIndicators | where SourceSystem == 'SOCRadar Threat Feeds'"
+audit_count() { law "SOCRadar_Feeds_Audit_CL | count"; }
+ti_rows()     { law "$TI_FILTER | count"; }
+# Exact: distinct, not dcount (dcount is approximate).
+ti_distinct() { law "$TI_FILTER | distinct Id | count"; }
 
-    while [ $ELAPSED -lt $MAX_WAIT ]; do
-        printf "\r  [%3ds] Running...   " $ELAPSED
-        sleep $INTERVAL
-        ELAPSED=$((ELAPSED + INTERVAL))
-
-        local BODY HTTP
-        BODY=$(curl -s -w '\n%{http_code}' \
-            -H "x-functions-key: $MASTER_KEY" \
-            "https://${FUNC_APP_NAME}.azurewebsites.net/admin/functions/socradar_feeds_import/status")
-        HTTP=$(printf '%s' "$BODY" | tail -1)
-        BODY=$(printf '%s' "$BODY" | sed '$d')
-        if [ "$HTTP" != "200" ]; then
-            echo ""
-            echo "  CANNOT MEASURE: status endpoint returned HTTP $HTTP"
-            return 2
-        fi
-        local STATUS
-        STATUS=$(printf '%s' "$BODY" | python3 -c "import sys,json;print(json.load(sys.stdin).get('is_running','unknown'))" 2>/dev/null || echo "parse-error")
-        if [ "$STATUS" = "parse-error" ]; then
-            echo ""
-            echo "  CANNOT MEASURE: status body was not JSON"
-            return 2
-        fi
-        if [ "$STATUS" = "false" ] || [ "$STATUS" = "False" ]; then
-            echo ""
-            echo "  Completed (${ELAPSED}s)"
-            return 0
+# Wait until the audit table holds more rows than $1 (a run finished and wrote
+# its row). 0 done, 1 timeout, 2 never able to read. A run that was still in
+# flight when we triggered is indistinguishable from ours; either is a finished
+# import, and the row it writes is what we judge.
+wait_for_audit_row() {
+    local before=$1 max=${2:-900} waited=0 n read_ok=0
+    is_num "$before" || { echo "  CANNOT MEASURE: audit table unreadable"; return 2; }
+    echo "  Waiting for the run's audit row (max ${max}s)..."
+    while [ $waited -lt $max ]; do
+        sleep 30
+        waited=$((waited + 30))
+        n=$(audit_count)
+        if is_num "$n"; then
+            read_ok=1
+            if [ "$n" -gt "$before" ]; then
+                echo "  Audit row seen (${waited}s)"
+                return 0
+            fi
         fi
     done
-
-    echo ""
-    # A timeout is NOT a pass. The old code returned 0 here and the caller
-    # ignored it, so a function that never finished read as a green run.
-    echo "  TIMEOUT after ${MAX_WAIT}s (function did not report idle)"
+    if [ $read_ok -eq 0 ]; then
+        echo "  CANNOT MEASURE: audit table never answered"
+        return 2
+    fi
+    # A timeout is NOT a pass.
+    echo "  TIMEOUT after ${max}s (no new audit row)"
     return 1
+}
+
+# Newest audit row -> A_STATUS A_CREATED A_FAILED (NA when unreadable).
+read_last_audit() {
+    local row
+    row=$(law "SOCRadar_Feeds_Audit_CL | top 1 by TimeGenerated desc | project Status, IndicatorsCreated, IndicatorsFailed")
+    A_STATUS=NA; A_CREATED=NA; A_FAILED=NA
+    case "$row" in NA|EMPTY) ;; *) IFS=$'\t' read -r A_STATUS A_CREATED A_FAILED <<< "$row" ;; esac
+}
+
+# The TI table is an append log: wait until it holds at least $1 rows. Sets
+# TI_ROWS_SEEN. Without this a count read right after a run can predate its rows.
+wait_ti_rows() {
+    local want=$1 max=$2 waited=0
+    while :; do
+        TI_ROWS_SEEN=$(ti_rows)
+        if is_num "$TI_ROWS_SEEN" && [ "$TI_ROWS_SEEN" -ge "$want" ]; then return 0; fi
+        [ $waited -ge "$max" ] && return 1
+        sleep 30
+        waited=$((waited + 30))
+    done
+}
+
+# How one finished run reads in the summary.
+run_verdict() {
+    if [ "$1" != "OK" ]; then echo "$1"
+    elif [ "$A_STATUS" = "NA" ] || [ "$A_STATUS" = "EMPTY" ]; then echo "CANNOT-MEASURE"
+    elif [ "$A_STATUS" = "Success" ] && [ "$A_FAILED" = "0" ]; then echo "PASS"
+    else echo "FAIL ($A_STATUS)"; fi
 }
 
 echo "=== SOCRadar Feeds Function App - Test ==="
@@ -156,26 +188,8 @@ if [ -n "$FA_PRINCIPAL" ]; then
     [ -n "$SENTINEL_ROLE" ] && echo "  Sentinel Contributor: OK" || echo "  Sentinel Contributor: MISSING (may fail)"
 fi
 
-# Pre-test TI indicator count
-TI_URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$WORKSPACE_NAME/providers/Microsoft.SecurityInsights/threatIntelligence/main/indicators?api-version=2024-03-01&\$top=1000"
-# The indicators API pages its results; one GET sees only the first page.
-# Measured 6 Sep 2026: the nextLink it hands back returns an empty page, so
-# the count is only reliable up to the $top of the first page (1000).
-ti_external_ids() {
-    local url="$TI_URL"
-    while [ -n "$url" ]; do
-        local page
-        page=$(az rest --method GET --url "$url" -o json 2>/dev/null) || break
-        printf '%s' "$page" | python3 -c 'import sys, json
-for v in json.load(sys.stdin).get("value", []):
-    print(v.get("properties", {}).get("externalId", ""))'
-        url=$(printf '%s' "$page" | python3 -c 'import sys, json; print(json.load(sys.stdin).get("nextLink", ""))')
-    done
-}
-ti_count() { ti_external_ids | wc -l | tr -d ' '; }
-
-INDICATOR_COUNT_BEFORE=$(ti_count)
-echo "  TI Indicators before: $INDICATOR_COUNT_BEFORE"
+AUDIT_BEFORE=$(audit_count)
+echo "  Audit rows before: $AUDIT_BEFORE"
 echo ""
 
 # ===========================================
@@ -193,15 +207,13 @@ else
     az functionapp log tail --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --timeout 5 2>/dev/null || true
 fi
 
-# Wait for completion. The return code matters: 0 done, 1 timeout, 2 could not look.
+# Wait for the run's audit row. The return code matters: 0 done, 1 timeout, 2 could not look.
 RUN1_WAIT="OK"
-wait_for_completion 300 || RUN1_WAIT=$([ $? -eq 1 ] && echo "TIMEOUT" || echo "CANNOT-MEASURE")
-
-# Check logs for result
-echo "  Checking recent logs..."
-az rest --method POST \
-    --url "https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Web/sites/$FUNC_APP_NAME/hostruntime/admin/functions/socradar_feeds_import/status?api-version=2023-12-01" \
-    2>/dev/null || true
+wait_for_audit_row "$AUDIT_BEFORE" 900 || RUN1_WAIT=$([ $? -eq 1 ] && echo "TIMEOUT" || echo "CANNOT-MEASURE")
+read_last_audit
+RUN1_A_STATUS=$A_STATUS; RUN1_A_CREATED=$A_CREATED
+echo "  Audit: status=$A_STATUS created=$A_CREATED failed=$A_FAILED"
+RUN1_VERDICT=$(run_verdict "$RUN1_WAIT")
 echo ""
 
 # ===========================================
@@ -209,22 +221,16 @@ echo ""
 # ===========================================
 echo "=== Test 2: Checking TI Indicators ==="
 
-sleep 5
-
-INDICATOR_COUNT_AFTER=$(ti_count)
-NEW_INDICATORS=$((INDICATOR_COUNT_AFTER - INDICATOR_COUNT_BEFORE))
-
-echo "  TI Indicators before: $INDICATOR_COUNT_BEFORE"
-echo "  TI Indicators after:  $INDICATOR_COUNT_AFTER"
-echo "  New indicators:       $NEW_INDICATORS"
-
-if [ "$NEW_INDICATORS" -gt 0 ] 2>/dev/null; then
-    echo ""
-    echo "  Sample indicators:"
-    az rest --method GET --url "$TI_URL" \
-        --query "value[0:3].{pattern:properties.pattern, source:properties.source, confidence:properties.confidence}" \
-        -o table 2>/dev/null || true
+# Absolute, not a delta: the first import usually finished during deployment
+# (RunOnStartup), before any "before" count could be taken.
+if is_num "$RUN1_A_CREATED" && [ "$RUN1_A_CREATED" -gt 0 ]; then
+    wait_ti_rows "$RUN1_A_CREATED" 600 || true
+else
+    wait_ti_rows 1 0 || true
 fi
+TI_DISTINCT_AFTER=$(ti_distinct)
+echo "  TI rows:         $TI_ROWS_SEEN"
+echo "  TI distinct Ids: $TI_DISTINCT_AFTER"
 echo ""
 
 # ===========================================
@@ -270,26 +276,40 @@ echo ""
 # TEST 4: Second Run (checkpoint/dedup test)
 # ===========================================
 echo "=== Test 4: Second Run (Checkpoint Test) ==="
+AUDIT_BEFORE2=$(audit_count)
+TI_ROWS_BEFORE2=$(ti_rows)
 echo "  Triggering second run..."
 HTTP_CODE=$(trigger_function)
 echo "  Triggered (HTTP $HTTP_CODE)"
 
 RUN2_WAIT="OK"
-wait_for_completion 300 || RUN2_WAIT=$([ $? -eq 1 ] && echo "TIMEOUT" || echo "CANNOT-MEASURE")
+wait_for_audit_row "$AUDIT_BEFORE2" 900 || RUN2_WAIT=$([ $? -eq 1 ] && echo "TIMEOUT" || echo "CANNOT-MEASURE")
+read_last_audit
+RUN2_A_CREATED=$A_CREATED
+echo "  Audit: status=$A_STATUS created=$A_CREATED failed=$A_FAILED"
+RUN2_VERDICT=$(run_verdict "$RUN2_WAIT")
 
-INDICATOR_COUNT_FINAL=$(ti_count)
-DUPLICATE_INDICATORS=$((INDICATOR_COUNT_FINAL - INDICATOR_COUNT_AFTER))
-echo "  Indicators after 2nd run: $INDICATOR_COUNT_FINAL (delta: $DUPLICATE_INDICATORS)"
-
-# A count that stayed flat proves nothing: the second run may simply have sent
-# nothing. Dedup is proven by the same STIX id being one record after two
-# uploads, and by the audit row of the second run saying it did send.
-DUP_IDS=$(ti_external_ids | sort | uniq -d | wc -l | tr -d ' ')
-echo "  STIX ids present more than once: $DUP_IDS"
-if [ "$DUP_IDS" = "0" ]; then
-    CHECKPOINT_OK="PASS"
-else
-    CHECKPOINT_OK="FAIL"
+# Dedup: the second run re-sends the overlap under the same STIX ids, so the
+# distinct id count must not move. That only means something once the second
+# run's rows have landed (the log is append-only) and the run really sent some.
+CHECKPOINT_OK="CANNOT-MEASURE"
+if [ "$RUN2_WAIT" = "OK" ] && is_num "$RUN2_A_CREATED" && is_num "$TI_ROWS_BEFORE2" && is_num "$TI_DISTINCT_AFTER"; then
+    if [ "$RUN2_A_CREATED" -gt 0 ]; then
+        if wait_ti_rows $((TI_ROWS_BEFORE2 + RUN2_A_CREATED)) 600; then
+            TI_DISTINCT_FINAL=$(ti_distinct)
+            echo "  TI rows: $TI_ROWS_BEFORE2 -> $TI_ROWS_SEEN, distinct Ids: $TI_DISTINCT_AFTER -> $TI_DISTINCT_FINAL"
+            if is_num "$TI_DISTINCT_FINAL" && [ "$TI_DISTINCT_FINAL" = "$TI_DISTINCT_AFTER" ]; then
+                CHECKPOINT_OK="PASS"
+            elif is_num "$TI_DISTINCT_FINAL"; then
+                CHECKPOINT_OK="FAIL (ids grew)"
+            fi
+        else
+            echo "  The second run's rows never appeared in ThreatIntelIndicators ($TI_ROWS_SEEN rows)"
+            CHECKPOINT_OK="FAIL (no rows)"
+        fi
+    else
+        echo "  The second run sent nothing, so dedup cannot be judged"
+    fi
 fi
 echo ""
 
@@ -309,19 +329,16 @@ row() { printf "| %-21s | %-15s |\n" "$1" "$2"; [ "$2" = "PASS" ] || fails=$((fa
 echo "| Test                  | Result          |"
 echo "|-----------------------|-----------------|"
 
-if [ "$RUN1_WAIT" != "OK" ]; then
-    row "Import Run" "$RUN1_WAIT"
-elif [ "${NEW_INDICATORS:-0}" -gt 0 ] 2>/dev/null; then
-    row "Import Run" "PASS"
-else
-    # First run against a fresh workspace importing nothing is a failure, not a warning.
-    row "Import Run" "FAIL (0 new)"
-fi
+row "Import Run" "$RUN1_VERDICT"
 
-if [ "${NEW_INDICATORS:-0}" -gt 0 ] 2>/dev/null; then
-    printf "| %-21s | %-15s |\n" "TI Indicators" "PASS ($NEW_INDICATORS)"
+# Rows must cover what the run reports sending, and at least one id must exist:
+# a run that imported nothing is a failure, not a warning.
+if ! is_num "$TI_DISTINCT_AFTER" || ! is_num "$TI_ROWS_SEEN"; then
+    row "TI Indicators" "CANNOT-MEASURE"
+elif [ "$TI_DISTINCT_AFTER" -gt 0 ] && { ! is_num "$RUN1_A_CREATED" || [ "$TI_ROWS_SEEN" -ge "$RUN1_A_CREATED" ]; }; then
+    printf "| %-21s | %-15s |\n" "TI Indicators" "PASS ($TI_DISTINCT_AFTER ids)"
 else
-    row "TI Indicators" "FAIL (0 new)"
+    row "TI Indicators" "FAIL ($TI_DISTINCT_AFTER ids)"
 fi
 
 case "$STORAGE_STATE" in
@@ -330,24 +347,19 @@ case "$STORAGE_STATE" in
     *)       row "Storage Checkpoint" "CANNOT-MEASURE" ;;
 esac
 
-# Second run: 0 new is the EXPECTED result (that is what the checkpoint is for).
-if [ "$RUN2_WAIT" != "OK" ]; then
-    row "Second Run" "$RUN2_WAIT"
-else
-    row "Second Run" "PASS"
-fi
+row "Second Run" "$RUN2_VERDICT"
 
 row "Checkpoint Dedup" "$CHECKPOINT_OK"
 
 echo ""
 if [ "$fails" -ne 0 ]; then
     echo "RESULT: FAIL ($fails check(s) not PASS)"
-    echo "Indicators: $INDICATOR_COUNT_BEFORE -> $INDICATOR_COUNT_AFTER -> $INDICATOR_COUNT_FINAL"
+    echo "TI distinct Ids: ${TI_DISTINCT_AFTER:-NA} -> ${TI_DISTINCT_FINAL:-NA}"
     echo "Function App will be STOPPED by cleanup trap."
     exit 1
 fi
 echo "RESULT: PASS"
 echo ""
-echo "Indicators: $INDICATOR_COUNT_BEFORE -> $INDICATOR_COUNT_AFTER -> $INDICATOR_COUNT_FINAL"
+echo "TI distinct Ids: ${TI_DISTINCT_AFTER:-NA} -> ${TI_DISTINCT_FINAL:-NA}"
 echo ""
 echo "Function App will be STOPPED by cleanup trap."
