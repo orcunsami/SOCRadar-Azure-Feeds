@@ -74,7 +74,12 @@ if tool == "curl":
 if args[:2] == ["rest", "--method"] and "/api/query" in line:
     body = json.loads(args[args.index("--body") + 1])
     rows = query(body["query"]); save()
-    print(json.dumps({"tables": [{"columns": [], "rows": rows}]})); sys.exit(0)
+    if scenario.endswith("_lower"):
+        out = {"tables": [{"columns": [], "rows": rows}]}
+    else:
+        # The live 2017-01-01-preview endpoint capitalises its keys.
+        out = {"Tables": [{"TableName": "Table_0", "Columns": [], "Rows": rows}]}
+    print(json.dumps(out)); sys.exit(0)
 if "rest" == args[0]:
     sys.exit("harness must not use ARM TI paging: " + line)
 if line.startswith("account show") and "user.name" in line: print("tester")
@@ -138,6 +143,11 @@ check(row(out, "TI Indicators") == "PASS (3882 ids)", "TI row: %r" % row(out, "T
 # Late ingestion of the second run's rows must not turn it red either.
 rc, out = play("healthy_delayed")
 check(rc == 0, "healthy product with late ingestion did not pass\n%s" % out[-900:])
+
+# The reader takes both spellings of the response keys: live is Tables/Rows,
+# lower case is the older shape.
+rc, out = play("healthy_lower")
+check(rc == 0 and "RESULT: PASS" in out, "lower-case response keys were not read (rc=%s)\n%s" % (rc, out[-900:]))
 
 # Broken products must not pass.
 rc, out = play("uuid4")

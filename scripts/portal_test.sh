@@ -59,7 +59,8 @@ trigger_function() {
 }
 
 # Log Analytics read through ARM. Prints the first row's cells, tab separated;
-# NA when the call failed, EMPTY when the query returned no rows.
+# NA when the call failed, EMPTY when the query returned no rows. The live
+# endpoint answers Tables/Rows; lower case is accepted too.
 LAW_URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$WORKSPACE_NAME/api/query?api-version=2017-01-01-preview"
 law() {
     local body out
@@ -68,7 +69,9 @@ law() {
     printf '%s' "$out" | python3 -c '
 import sys, json
 try:
-    rows = json.load(sys.stdin)["tables"][0]["rows"]
+    j = json.load(sys.stdin)
+    t = (j["Tables"] if "Tables" in j else j["tables"])[0]
+    rows = t["Rows"] if "Rows" in t else t["rows"]
     print("\t".join(str(c) for c in rows[0]) if rows else "EMPTY")
 except Exception:
     print("NA")'
