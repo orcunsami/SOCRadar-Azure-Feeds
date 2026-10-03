@@ -1,10 +1,12 @@
 #!/bin/bash
 # SOCRadar Feeds Function App - Azure Test Script
-# Tests Function App end-to-end: trigger, check TI indicators, checkpoint, dedup
+# Tests Function App end-to-end: trigger, check TI indicators, checkpoint, re-sent ids
 # Run state comes from SOCRadar_Feeds_Audit_CL and indicator counts from
 # ThreatIntelIndicators, both read through Log Analytics (exact distinct, no
 # page limit). Ingestion lags by minutes, so every read polls with a ceiling.
 
+# `bash -x` would print the Functions master key; no xtrace in this script.
+{ set +x; } 2>/dev/null
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -26,36 +28,86 @@ if [ -z "$SUBSCRIPTION_ID" ] || [ -z "$RESOURCE_GROUP" ] || [ -z "$WORKSPACE_NAM
     exit 1
 fi
 
+# Check login and subscription before anything is read or stopped: the cleanup
+# trap below stops a Function App, and it must never do that in the wrong subscription.
+if ! ACCOUNT=$(az account show --query "user.name" -o tsv) || [ -z "$ACCOUNT" ]; then
+    echo "Not logged in. Run: az login --use-device-code"
+    exit 1
+fi
+echo "Logged in as: $ACCOUNT"
+if ! ACTIVE_SUB=$(az account show --query id -o tsv); then
+    echo "ERROR: CANNOT MEASURE: az account show failed"
+    exit 1
+fi
+if [ "$ACTIVE_SUB" != "$SUBSCRIPTION_ID" ]; then
+    echo "ERROR: az is on subscription '${ACTIVE_SUB:-none}' but SUBSCRIPTION_ID is '$SUBSCRIPTION_ID'"
+    exit 1
+fi
+echo ""
+
 # Find Function App name
-FUNC_APP_NAME=$(az functionapp list -g "$RESOURCE_GROUP" --query "[?starts_with(name, 'socradar-feeds-')].name" -o tsv 2>/dev/null | head -1)
+# Under set -e a bare X=$(...) or a pipe into head hides an az failure: every
+# az read below is `if ! X=$(...)` so "could not look" never reads as "absent".
+if ! FUNC_APP_NAME=$(az functionapp list -g "$RESOURCE_GROUP" --query "[?starts_with(name, 'socradar-feeds-')].name" -o tsv); then
+    echo "ERROR: CANNOT MEASURE: az functionapp list failed"
+    exit 1
+fi
+FUNC_APP_NAME=${FUNC_APP_NAME%%$'\n'*}
 if [ -z "$FUNC_APP_NAME" ]; then
     echo "ERROR: No Function App found. Run portal_setup.sh first."
     exit 1
 fi
 
 # CRITICAL: Stop Function App on exit (cost control!)
+# A stop that failed, or an app not read back as Stopped, makes the exit code non-zero.
 cleanup() {
+    local rc=$? bad=0
+    rm -f "${AZERR:-}" "${HDRFILE:-}"
     echo ""
     echo "=== CLEANUP: Stopping Function App ==="
-    az functionapp stop --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" 2>/dev/null || true
-    FA_STATE=$(az functionapp show --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "state" -o tsv 2>/dev/null || echo "UNKNOWN")
+    if ! az functionapp stop --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP"; then
+        echo "ERROR: functionapp stop failed: $FUNC_APP_NAME may still be billing"; bad=1
+    fi
+    if ! FA_STATE=$(az functionapp show --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "state" -o tsv); then
+        FA_STATE=UNKNOWN
+    fi
     echo "  $FUNC_APP_NAME state: $FA_STATE"
+    if [ "$FA_STATE" != "Stopped" ]; then
+        echo "ERROR: $FUNC_APP_NAME is '$FA_STATE', not Stopped: stop it by hand"; bad=1
+    fi
+    [ "$rc" -eq 0 ] && [ "$bad" -ne 0 ] && exit 1
+    return 0
 }
+# az writes its stderr here, never into the answer: az 2.84 prints a WARNING on
+# every call that uses --auth-mode key, and that text is not data.
+AZERR=$(mktemp)
+az_err() { local m; m=$(grep -m1 '^ERROR' "$AZERR"); [ -n "$m" ] || m=$(head -c 200 "$AZERR" | tr '\n' ' '); printf '%s' "${m:0:200}"; }
+# The master key goes to curl through this 0600 file, not argv (ps shows argv).
+HDRFILE=$(mktemp)
 trap cleanup EXIT
 
 # Helper: trigger function via admin endpoint
 trigger_function() {
-    local MASTER_KEY=$(az functionapp keys list --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "masterKey" -o tsv 2>/dev/null)
-    if [ -z "$MASTER_KEY" ]; then
-        echo "ERROR: Could not get master key"
+    # Prints the HTTP code, or the reason and return 1. Callers: `if ! X=$(trigger_function)`.
+    local MASTER_KEY code rc attempt
+    if ! MASTER_KEY=$(az functionapp keys list --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "masterKey" -o tsv) || [ -z "$MASTER_KEY" ]; then
+        echo "Could not get master key"
         return 1
     fi
-
-    curl -s -o /dev/null -w "%{http_code}" \
-        -X POST "https://${FUNC_APP_NAME}.azurewebsites.net/admin/functions/socradar_feeds_import" \
-        -H "x-functions-key: $MASTER_KEY" \
-        -H "Content-Type: application/json" \
-        -d '{}'
+    printf 'x-functions-key: %s\n' "$MASTER_KEY" > "$HDRFILE"
+    # A freshly started app answers 502/503 on the admin endpoint while it cold-starts:
+    # 5xx or no answer is tried 3 times, 15 s apart; 4xx is a real answer and is not retried.
+    for attempt in 1 2 3; do
+        code=$(curl -s --max-time 60 -o /dev/null -w "%{http_code}" \
+            -X POST "https://${FUNC_APP_NAME}.azurewebsites.net/admin/functions/socradar_feeds_import" \
+            -H @"$HDRFILE" \
+            -H "Content-Type: application/json" \
+            -d '{}') && rc=0 || rc=$?
+        if [ "$rc" -eq 0 ] && [ "${code:0:1}" != 5 ]; then break; fi
+        [ "$attempt" -lt 3 ] && { echo "  trigger attempt $attempt: rc=$rc http $code, retrying in 15s" >&2; sleep 15; }
+    done
+    if [ "$rc" -ne 0 ]; then echo "curl failed (rc=$rc, http $code)"; return 1; fi
+    echo "$code"
 }
 
 # Log Analytics read through ARM. Prints the first row's cells, tab separated;
@@ -64,8 +116,8 @@ trigger_function() {
 LAW_URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$WORKSPACE_NAME/api/query?api-version=2017-01-01-preview"
 law() {
     local body out
-    body=$(python3 -c 'import json,sys; print(json.dumps({"query": sys.argv[1]}))' "$1")
-    out=$(az rest --method POST --url "$LAW_URL" --body "$body" -o json 2>/dev/null) || { echo NA; return 0; }
+    body=$(python3 -c 'import json,sys; print(json.dumps({"query": sys.argv[1]}))' "$1") || { echo NA; return 0; }
+    out=$(az rest --method POST --url "$LAW_URL" --body "$body" -o json 2>"$AZERR") || { echo "  law: $(az_err)" >&2; echo NA; return 0; }
     printf '%s' "$out" | python3 -c '
 import sys, json
 try:
@@ -138,6 +190,7 @@ wait_ti_rows() {
 run_verdict() {
     if [ "$1" != "OK" ]; then echo "$1"
     elif [ "$A_STATUS" = "NA" ] || [ "$A_STATUS" = "EMPTY" ]; then echo "CANNOT-MEASURE"
+    # The product only writes Success with failed=0; the second test is a guard.
     elif [ "$A_STATUS" = "Success" ] && [ "$A_FAILED" = "0" ]; then echo "PASS"
     else echo "FAIL ($A_STATUS)"; fi
 }
@@ -150,45 +203,43 @@ echo "  Workspace:      $WORKSPACE_NAME"
 echo "  Function App:   $FUNC_APP_NAME"
 echo ""
 
-# Check login
-ACCOUNT=$(az account show --query "user.name" -o tsv 2>/dev/null)
-if [ -z "$ACCOUNT" ]; then
-    echo "Not logged in. Run: az login --use-device-code"
-    exit 1
-fi
-echo "Logged in as: $ACCOUNT"
-ACTIVE_SUB=$(az account show --query id -o tsv 2>/dev/null)
-if [ "$ACTIVE_SUB" != "$SUBSCRIPTION_ID" ]; then
-    echo "ERROR: az is on subscription '${ACTIVE_SUB:-none}' but SUBSCRIPTION_ID is '$SUBSCRIPTION_ID'"
-    exit 1
-fi
-echo ""
-
 # ===========================================
 # PRE-TEST: Check Function App exists and running
 # ===========================================
 echo "=== Pre-Test: Checking Resources ==="
-FA_STATE=$(az functionapp show --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "state" -o tsv 2>/dev/null || echo "NOT_FOUND")
-if [ "$FA_STATE" = "NOT_FOUND" ]; then
-    echo "ERROR: Function App not found. Run portal_setup.sh first."
+# az exits 3 for a resource that is not there (measured live); any other failure
+# is a look that did not happen and must not read as "absent".
+FA_STATE=$(az functionapp show --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --query "state" -o tsv 2>/dev/null) && FA_RC=0 || FA_RC=$?
+if [ "$FA_RC" -eq 3 ]; then
+    echo "ERROR: FAIL (absent): Function App $FUNC_APP_NAME not found. Run portal_setup.sh first."
+    exit 1
+elif [ "$FA_RC" -ne 0 ] || [ -z "$FA_STATE" ]; then
+    echo "ERROR: CANNOT MEASURE: az functionapp show failed (rc=$FA_RC)"
     exit 1
 fi
 
 # Start if stopped
 if [ "$FA_STATE" != "Running" ]; then
     echo "  Starting Function App..."
-    az functionapp start --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" 2>/dev/null
+    if ! az functionapp start --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" -o none; then
+        echo "ERROR: CANNOT MEASURE: could not start Function App"
+        exit 1
+    fi
     sleep 10
 fi
 echo "  Function App: $FUNC_APP_NAME ($FA_STATE)"
 
-# Check role assignments
-FA_PRINCIPAL=$(az identity show -g "$RESOURCE_GROUP" -n "SOCRadar-Feeds-MI" --query principalId -o tsv 2>/dev/null || echo "")
-if [ -n "$FA_PRINCIPAL" ]; then
-    SENTINEL_ROLE=$(az role assignment list --assignee "$FA_PRINCIPAL" \
+# Check role assignments (the template assigns it; without it TI upload is refused, so MISSING is a FAIL in the summary)
+ROLE_STATE="CANNOT-MEASURE"
+if ! FA_PRINCIPAL=$(az identity show -g "$RESOURCE_GROUP" -n "SOCRadar-Feeds-MI" --query principalId -o tsv) || [ -z "$FA_PRINCIPAL" ]; then
+    echo "  Sentinel Contributor: CANNOT MEASURE (identity SOCRadar-Feeds-MI unreadable)"
+else
+    if ! SENTINEL_ROLE=$(az role assignment list --assignee "$FA_PRINCIPAL" \
         --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.OperationalInsights/workspaces/$WORKSPACE_NAME" \
-        --query "[?roleDefinitionName=='Microsoft Sentinel Contributor'].roleDefinitionName" -o tsv 2>/dev/null)
-    [ -n "$SENTINEL_ROLE" ] && echo "  Sentinel Contributor: OK" || echo "  Sentinel Contributor: MISSING (may fail)"
+        --query "[?roleDefinitionName=='Microsoft Sentinel Contributor'].roleDefinitionName" -o tsv); then
+        echo "  Sentinel Contributor: CANNOT MEASURE"
+    elif [ -n "$SENTINEL_ROLE" ]; then echo "  Sentinel Contributor: OK"; ROLE_STATE="OK"
+    else echo "  Sentinel Contributor: MISSING"; ROLE_STATE="MISSING"; fi
 fi
 
 AUDIT_BEFORE=$(audit_count)
@@ -201,18 +252,25 @@ echo ""
 echo "=== Test 1: Trigger Import ==="
 
 echo "  Triggering via admin endpoint..."
-HTTP_CODE=$(trigger_function)
-if [ "$HTTP_CODE" = "202" ] || [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
+TRIG1="OK"
+if ! HTTP_CODE=$(trigger_function); then
+    echo "  Trigger: CANNOT MEASURE ($HTTP_CODE)"
+    TRIG1="CANNOT-MEASURE"
+elif [ "$HTTP_CODE" = "202" ] || [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
     echo "  Triggered (HTTP $HTTP_CODE)"
 else
+    # A rejected trigger is a failed run: waiting would let an unrelated run's audit row pass for ours.
     echo "  Trigger response: HTTP $HTTP_CODE"
+    TRIG1="FAIL (HTTP $HTTP_CODE)"
     echo "  Checking function logs..."
     az functionapp log tail --name "$FUNC_APP_NAME" -g "$RESOURCE_GROUP" --timeout 5 2>/dev/null || true
 fi
 
 # Wait for the run's audit row. The return code matters: 0 done, 1 timeout, 2 could not look.
-RUN1_WAIT="OK"
-wait_for_audit_row "$AUDIT_BEFORE" 900 || RUN1_WAIT=$([ $? -eq 1 ] && echo "TIMEOUT" || echo "CANNOT-MEASURE")
+RUN1_WAIT="$TRIG1"
+if [ "$TRIG1" = "OK" ]; then
+    wait_for_audit_row "$AUDIT_BEFORE" 900 || RUN1_WAIT=$([ $? -eq 1 ] && echo "TIMEOUT" || echo "CANNOT-MEASURE")
+fi
 read_last_audit
 RUN1_A_STATUS=$A_STATUS; RUN1_A_CREATED=$A_CREATED
 echo "  Audit: status=$A_STATUS created=$A_CREATED failed=$A_FAILED"
@@ -232,6 +290,7 @@ else
     wait_ti_rows 1 0 || true
 fi
 TI_DISTINCT_AFTER=$(ti_distinct)
+TI1_ROWS=$TI_ROWS_SEEN   # Test 4 overwrites TI_ROWS_SEEN; the summary judges run 1 on this
 echo "  TI rows:         $TI_ROWS_SEEN"
 echo "  TI distinct Ids: $TI_DISTINCT_AFTER"
 echo ""
@@ -241,59 +300,77 @@ echo ""
 # ===========================================
 STORAGE_STATE="CANNOT-MEASURE"
 echo "=== Test 3: Checking Storage Checkpoint ==="
-STORAGE_ACCOUNT=$(az storage account list -g "$RESOURCE_GROUP" --query "[?starts_with(name, 'srfeeds')].name" -o tsv 2>/dev/null | head -1)
+STORAGE_ACCOUNT=""; SA_ERR=""
+if ! SA_OUT=$(az storage account list -g "$RESOURCE_GROUP" --query "[?starts_with(name, 'srfeeds')].name" -o tsv); then
+    echo "  Storage Account: CANNOT MEASURE (az storage account list failed)"
+    SA_ERR=1
+else
+    STORAGE_ACCOUNT=${SA_OUT%%$'\n'*}
+fi
 if [ -n "$STORAGE_ACCOUNT" ]; then
     echo "  Storage Account: $STORAGE_ACCOUNT"
     # --auth-mode key is required: without it recent az CLI tries AAD against the
-    # table endpoint and fails. The old code sent that failure to /dev/null and
-    # printed "NOT FOUND" / "0 entries", so a broken call read as a real answer.
-    TABLE_EXISTS=$(az storage table list --account-name "$STORAGE_ACCOUNT" --auth-mode key \
-        --query "[?name=='FeedState'].name" -o tsv 2>&1)
-    if [ $? -ne 0 ]; then
-        echo "  FeedState Table: CANNOT MEASURE (${TABLE_EXISTS%%$'\n'*})"
+    # table endpoint and fails. stdout is the answer, stderr goes to $AZERR (az 2.84
+    # prints a WARNING there on every call), shown only when the call failed.
+    # `if ! X=$(...)`: under set -e a bare X=$(...) exits before any `$?` test.
+    if ! TABLE_EXISTS=$(az storage table list --account-name "$STORAGE_ACCOUNT" --auth-mode key \
+        --query "[?name=='FeedState'].name" -o tsv 2>"$AZERR"); then
+        echo "  FeedState Table: CANNOT MEASURE ($(az_err))"
         STORAGE_STATE="CANNOT-MEASURE"; TABLE_EXISTS=""
     elif [ -n "$TABLE_EXISTS" ]; then
         echo "  FeedState Table: OK"
-        ENTITY_COUNT=$(az storage entity query --table-name "FeedState" --account-name "$STORAGE_ACCOUNT" \
-            --auth-mode key --query "items | length(@)" -o tsv 2>&1)
-        if [ $? -ne 0 ]; then
-            echo "  Checkpoint entries: CANNOT MEASURE (${ENTITY_COUNT%%$'\n'*})"
+        if ! ENTITY_COUNT=$(az storage entity query --table-name "FeedState" --account-name "$STORAGE_ACCOUNT" \
+            --auth-mode key --query "items | length(@)" -o tsv 2>"$AZERR"); then
+            echo "  Checkpoint entries: CANNOT MEASURE ($(az_err))"
             STORAGE_STATE="CANNOT-MEASURE"
+        elif ! is_num "$ENTITY_COUNT"; then
+            echo "  Checkpoint entries: CANNOT MEASURE (not a number: '${ENTITY_COUNT:0:40}')"
+            STORAGE_STATE="CANNOT-MEASURE"
+        elif [ "$ENTITY_COUNT" -eq 0 ]; then
+            echo "  Checkpoint entries: 0 (an import ran and wrote no checkpoint)"
+            STORAGE_STATE="EMPTY"
         else
             echo "  Checkpoint entries: $ENTITY_COUNT"
             STORAGE_STATE="OK"
+            # Display only; the verdict is the count above.
             az storage entity query --table-name "FeedState" --account-name "$STORAGE_ACCOUNT" --auth-mode key \
-                --query "items[].{Collection:CollectionName, Processed:LastProcessedDate, LastRun:LastRun, New:NewIndicators}" -o table 2>&1 | head -20
+                --query "items[].{Collection:CollectionName, Processed:LastProcessedDate, LastRun:LastRun, New:NewIndicators}" -o table 2>/dev/null | head -20
         fi
     else
         echo "  FeedState Table: NOT FOUND (query succeeded, table absent)"
         STORAGE_STATE="MISSING"
     fi
-else
+elif [ -z "$SA_ERR" ]; then
     echo "  Storage Account: NOT FOUND"
     STORAGE_STATE="MISSING"
 fi
 echo ""
 
 # ===========================================
-# TEST 4: Second Run (checkpoint/dedup test)
+# TEST 4: Second Run (re-sent ids must not multiply)
 # ===========================================
-echo "=== Test 4: Second Run (Checkpoint Test) ==="
+echo "=== Test 4: Second Run (overlap re-send) ==="
 AUDIT_BEFORE2=$(audit_count)
 TI_ROWS_BEFORE2=$(ti_rows)
 echo "  Triggering second run..."
-HTTP_CODE=$(trigger_function)
-echo "  Triggered (HTTP $HTTP_CODE)"
-
 RUN2_WAIT="OK"
-wait_for_audit_row "$AUDIT_BEFORE2" 900 || RUN2_WAIT=$([ $? -eq 1 ] && echo "TIMEOUT" || echo "CANNOT-MEASURE")
+if HTTP_CODE=$(trigger_function) && case "$HTTP_CODE" in 200|202|204) true ;; *) false ;; esac; then
+    echo "  Triggered (HTTP $HTTP_CODE)"
+    wait_for_audit_row "$AUDIT_BEFORE2" 900 || RUN2_WAIT=$([ $? -eq 1 ] && echo "TIMEOUT" || echo "CANNOT-MEASURE")
+elif [ -n "${HTTP_CODE//[0-9]/}" ]; then
+    echo "  Trigger: CANNOT MEASURE ($HTTP_CODE)"
+    RUN2_WAIT="CANNOT-MEASURE"
+else
+    echo "  Trigger response: HTTP $HTTP_CODE"
+    RUN2_WAIT="FAIL (HTTP $HTTP_CODE)"
+fi
 read_last_audit
 RUN2_A_CREATED=$A_CREATED
 echo "  Audit: status=$A_STATUS created=$A_CREATED failed=$A_FAILED"
 RUN2_VERDICT=$(run_verdict "$RUN2_WAIT")
 
-# Dedup: the second run re-sends the overlap under the same STIX ids, so the
-# distinct id count must not move. That only means something once the second
+# Ids: the checkpoint does not narrow the window (48 h overlap), so the second run
+# sends indicators again: created repeats, rows grow, the distinct id count must not move. That only means something once the second
 # run's rows have landed (the log is append-only) and the run really sent some.
 CHECKPOINT_OK="CANNOT-MEASURE"
 if [ "$RUN2_WAIT" = "OK" ] && is_num "$RUN2_A_CREATED" && is_num "$TI_ROWS_BEFORE2" && is_num "$TI_DISTINCT_AFTER"; then
@@ -307,8 +384,12 @@ if [ "$RUN2_WAIT" = "OK" ] && is_num "$RUN2_A_CREATED" && is_num "$TI_ROWS_BEFOR
                 CHECKPOINT_OK="FAIL (ids grew)"
             fi
         else
-            echo "  The second run's rows never appeared in ThreatIntelIndicators ($TI_ROWS_SEEN rows)"
-            CHECKPOINT_OK="FAIL (no rows)"
+            if is_num "$TI_ROWS_SEEN"; then
+                echo "  The second run's rows never appeared in ThreatIntelIndicators ($TI_ROWS_SEEN rows)"
+                CHECKPOINT_OK="FAIL (no rows)"
+            else
+                echo "  CANNOT MEASURE: ThreatIntelIndicators unreadable ($TI_ROWS_SEEN)"
+            fi
         fi
     else
         echo "  The second run sent nothing, so dedup cannot be judged"
@@ -327,19 +408,19 @@ echo ""
 # a harness whose worst outcome is a warning cannot fail, and a run that imported
 # nothing used to read as green here.
 fails=0
-row() { printf "| %-21s | %-15s |\n" "$1" "$2"; [ "$2" = "PASS" ] || fails=$((fails+1)); }
+row() { printf "| %-24s | %-15s |\n" "$1" "$2"; [ "$2" = "PASS" ] || fails=$((fails+1)); }
 
-echo "| Test                  | Result          |"
-echo "|-----------------------|-----------------|"
+echo "| Test                     | Result          |"
+echo "|--------------------------|-----------------|"
 
 row "Import Run" "$RUN1_VERDICT"
 
 # Rows must cover what the run reports sending, and at least one id must exist:
 # a run that imported nothing is a failure, not a warning.
-if ! is_num "$TI_DISTINCT_AFTER" || ! is_num "$TI_ROWS_SEEN"; then
+if ! is_num "$TI_DISTINCT_AFTER" || ! is_num "$TI1_ROWS"; then
     row "TI Indicators" "CANNOT-MEASURE"
-elif [ "$TI_DISTINCT_AFTER" -gt 0 ] && { ! is_num "$RUN1_A_CREATED" || [ "$TI_ROWS_SEEN" -ge "$RUN1_A_CREATED" ]; }; then
-    printf "| %-21s | %-15s |\n" "TI Indicators" "PASS ($TI_DISTINCT_AFTER ids)"
+elif [ "$TI_DISTINCT_AFTER" -gt 0 ] && { ! is_num "$RUN1_A_CREATED" || [ "$TI1_ROWS" -ge "$RUN1_A_CREATED" ]; }; then
+    printf "| %-24s | %-15s |\n" "TI Indicators" "PASS ($TI_DISTINCT_AFTER ids)"
 else
     row "TI Indicators" "FAIL ($TI_DISTINCT_AFTER ids)"
 fi
@@ -347,12 +428,19 @@ fi
 case "$STORAGE_STATE" in
     OK)      row "Storage Checkpoint" "PASS" ;;
     MISSING) row "Storage Checkpoint" "FAIL (absent)" ;;
+    EMPTY)   row "Storage Checkpoint" "FAIL (empty)" ;;
     *)       row "Storage Checkpoint" "CANNOT-MEASURE" ;;
+esac
+
+case "$ROLE_STATE" in
+    OK)      row "Sentinel Contributor" "PASS" ;;
+    MISSING) row "Sentinel Contributor" "FAIL (missing)" ;;
+    *)       row "Sentinel Contributor" "CANNOT-MEASURE" ;;
 esac
 
 row "Second Run" "$RUN2_VERDICT"
 
-row "Checkpoint Dedup" "$CHECKPOINT_OK"
+row "Same IDs not duplicated" "$CHECKPOINT_OK"
 
 echo ""
 if [ "$fails" -ne 0 ]; then
