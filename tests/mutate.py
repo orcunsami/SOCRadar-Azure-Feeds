@@ -595,6 +595,13 @@ else''',
   '$(grep -o \'line [0-9]*\' "$ENVERR" | sort -u | tr \'\\n\' \' \')',
   '$(cat "$ENVERR")',
   'tests/test_setup_secrets.py'),
+ ("workspace toggle defaults to true again","azuredeploy.json",
+  '''"DeployNewWorkspace": {
+            "type": "bool",
+            "defaultValue": false,''','''"DeployNewWorkspace": {
+            "type": "bool",
+            "defaultValue": true,''',
+  "tests/test_workspace_precheck.py"),
 ]
 
 

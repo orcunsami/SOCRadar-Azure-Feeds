@@ -19,9 +19,11 @@ az deployment group create \
     SocradarApiKey=<API_KEY>
 ```
 
+`DeployNewWorkspace` defaults to `false`: the deployment uses your existing workspace and does not update the workspace itself, so its pricing tier (commitment tier included), retention and daily cap stay as they are. It does add its own tables under the workspace and enables Microsoft Sentinel on it if that is not done yet. If you do not have a workspace yet, add `DeployNewWorkspace=true` and the deployment creates one. Deploy in incremental mode (the default); complete mode deletes resources in the group that the template does not list.
+
 ## Prerequisites
 
-- A Log Analytics workspace named `WorkspaceName`. It is created when missing (`DeployNewWorkspace`, default `true`). To use an existing one, set `DeployNewWorkspace=false`; it must be in the resource group you deploy to.
+- A Log Analytics workspace named `WorkspaceName` in the resource group you deploy to. By default (`DeployNewWorkspace=false`) it must already exist. To have it created, set `DeployNewWorkspace=true`.
 - SOCRadar Platform API Key
 
 ## Parameters
@@ -29,7 +31,7 @@ az deployment group create \
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
 | `WorkspaceName` | Yes | - | Microsoft Sentinel workspace name |
-| `DeployNewWorkspace` | No | `true` | Create `WorkspaceName` when it does not exist yet; an existing workspace under that name is left untouched (pricing tier, retention, daily cap). Set `false` when the workspace must already exist, so a misspelled name fails before anything is created. An existing workspace in another region than `WorkspaceLocation` fails with `InvalidResourceLocation`. |
+| `DeployNewWorkspace` | No | `false` | `false` uses the workspace that already exists: the workspace itself is not updated, so its pricing tier, retention and daily cap are never changed, and a name that does not exist fails before anything is created. Set `true` only to create a new workspace named `WorkspaceName`; do not set it on an existing workspace that uses a commitment tier. |
 | `WorkspaceLocation` | No | RG location | Region of the workspace |
 | `SocradarApiKey` | Yes | - | SOCRadar Platform API key |
 | `IncludeAPTBlockHash` | No | true | Include APT Recommended Block Hash feed (~500 indicators) |
@@ -71,8 +73,8 @@ az monitor log-analytics workspace show -g <resource-group> -n <workspace> \
 
 If `lastSkuUpdate` lines up with when you deployed this integration and the tier isn't the one
 you picked, reset your commitment tier from **Log Analytics workspaces > Usage and estimated
-costs > Pricing tier**. The current template states no workspace-level settings at all, so
-redeploying -- with `DeployNewWorkspace` at its default `true` -- cannot change its pricing
+costs > Pricing tier**. The current template does not update an existing workspace while
+`DeployNewWorkspace` is at its default `false`, so redeploying cannot change its pricing
 tier, retention or daily cap.
 
 Redeploy the template over an existing installation to pick up the `IndicatorsFailed` and `CollectionsFailed` audit columns; until then the data collection rule drops those two columns silently.

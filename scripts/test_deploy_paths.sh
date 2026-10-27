@@ -19,10 +19,10 @@
 #                   by the deploymentScript.
 #
 # Four paths:
-#   A  missing workspace, DeployNewWorkspace=false -> fails, resource group stays EMPTY
-#   B  defaults (one click, new name)       -> succeeds, guard SKIPPED, functions INDEXED
-#   C  existing workspace, DeployNewWorkspace=false -> guard SUCCEEDS and resolves customerId
-#   D  redeploy of B                      -> succeeds AND the app still has functions
+#   A  missing workspace, defaults (DeployNewWorkspace=false) -> fails, resource group stays EMPTY
+#   B  DeployNewWorkspace=true (opt-in create) -> succeeds, guard SKIPPED, functions INDEXED
+#   C  existing workspace, defaults       -> guard SUCCEEDS and resolves customerId
+#   D  redeploy of B at the defaults      -> succeeds, workspace untouched, the app still has functions
 #
 # B and D assert three things, none of them the provisioning state: the function
 # count, the shape of the package pointer, and -- for B -- that the app still
@@ -221,7 +221,7 @@ done
 
 # --- A: the customer's typo, defaults left alone --------------------------------------
 echo "[2/5] Path A: missing workspace with DeployNewWorkspace=false ..."
-deploy "$RG_APP" path-a WorkspaceName="$MISSING" DeployNewWorkspace=false
+deploy "$RG_APP" path-a WorkspaceName="$MISSING"
 rd state az deployment group show -g "$RG_APP" -n path-a --query properties.provisioningState -o tsv
 rd left az resource list -g "$RG_APP" --query "length(@)" -o tsv
 steps=$(failed_step "$RG_APP" path-a)
@@ -234,7 +234,7 @@ else row "A blames the precheck" FAIL "failed step(s) were: ${steps:-<none read>
 
 # --- B: greenfield, and the package has to actually load -------------------------------
 echo "[3/5] Path B: new workspace name with the parameters at their defaults ..."
-deploy "$RG_APP" path-b WorkspaceName="$WS"
+deploy "$RG_APP" path-b WorkspaceName="$WS" DeployNewWorkspace=true
 rd state az deployment group show -g "$RG_APP" -n path-b --query properties.provisioningState -o tsv
 steps=$(failed_step "$RG_APP" path-b)
 expect "B greenfield succeeds" "$state" Succeeded "$state" "expected Succeeded, got '$state', failed step(s): ${steps:-<none>}"
@@ -267,7 +267,7 @@ echo "[4/5] Path C: existing workspace, DeployNewWorkspace=false ..."
 if ! az monitor log-analytics workspace create -g "$RG_C" -n "$WS" -l "$LOCATION" --retention-time 30 -o none; then
     row "C workspace for the test" CANNOT "az monitor log-analytics workspace create failed (reason above)"
 else
-    deploy "$RG_C" path-c WorkspaceName="$WS" DeployNewWorkspace=false
+    deploy "$RG_C" path-c WorkspaceName="$WS"
     rd state az deployment group show -g "$RG_C" -n path-c --query properties.provisioningState -o tsv
     steps=$(failed_step "$RG_C" path-c)
     rd guard_state az deployment operation group list -g "$RG_C" -n path-c \
@@ -281,8 +281,13 @@ else
 fi
 
 # --- D: redeploy. The forceUpdateTag test, and it only shows in the count ---------------
-echo "[5/5] Path D: redeploying $RG_APP ..."
-deploy "$RG_APP" path-d WorkspaceName="$WS" DeployNewWorkspace=false
+echo "[5/5] Path D: redeploying $RG_APP at the defaults ..."
+# Non-default retention first: the redeploy must leave it, and lastSkuUpdate, exactly as they were.
+az monitor log-analytics workspace update -g "$RG_APP" -n "$WS" --retention-time 90 -o none 2>/dev/null
+before=$(az monitor log-analytics workspace show -g "$RG_APP" -n "$WS" --query "[retentionInDays, sku.name, sku.lastSkuUpdate]" -o tsv 2>/dev/null | tr '\n' ' ')
+deploy "$RG_APP" path-d WorkspaceName="$WS"
+after=$(az monitor log-analytics workspace show -g "$RG_APP" -n "$WS" --query "[retentionInDays, sku.name, sku.lastSkuUpdate]" -o tsv 2>/dev/null | tr '\n' ' ')
+[ -n "$before" ] && [ "$before" = "$after" ] && row "D leaves the existing workspace untouched" PASS "retention/sku/lastSkuUpdate unchanged" || row "D leaves the existing workspace untouched" FAIL "before='$before' after='$after'"
 rd state az deployment group show -g "$RG_APP" -n path-d --query properties.provisioningState -o tsv
 steps=$(failed_step "$RG_APP" path-d)
 expect "D redeploy succeeds" "$state" Succeeded "$state" "expected Succeeded, got '$state', failed step(s): ${steps:-<none>}"

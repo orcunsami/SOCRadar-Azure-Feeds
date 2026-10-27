@@ -79,6 +79,9 @@ elif line.startswith("functionapp restart"):
     if sc == "restartfail": sys.exit("ERROR: restart refused")
 elif line.startswith("monitor log-analytics"):
     if sc == "wscreatefail": sys.exit("ERROR: workspace create refused")
+    if "workspace show" in line and "retentionInDays" in line:
+        n = open(os.environ["FAKE_CALLS"]).read().count("retentionInDays")
+        print("30\nPerGB2018\n2026-01-01T00:00:00Z" if sc == "wsdrift" and n >= 2 else "90\nPerGB2018\n2026-01-01T00:00:00Z")
 '''
 
 
@@ -170,7 +173,7 @@ ALL = ["A deployment fails", "A leaves nothing behind", "A blames the precheck",
        "B skips the precheck", "B indexes the function", "B stores the package where the app reloads it",
        "B still serves after a restart", "C precheck succeeds", "C precheck resolves customerId",
        "C deployment succeeds", "D redeploy succeeds", "D still has the package after redeploy",
-       "D still stores the package where the app reloads it"]
+       "D still stores the package where the app reloads it", "D leaves the existing workspace untouched"]
 rc, out, calls, _ = play("healthy")
 deleted_all("healthy", calls)
 check(rc == 0 and all(row(out, n) == "PASS" for n in ALL) and "All four deployment paths" in out,
@@ -193,7 +196,7 @@ out = cannot("wscreatefail", ["C workspace for the test"])
 check(row(out, "C precheck succeeds") is None, "wscreatefail: path C went on without a workspace")
 # A real answer that is wrong is still FAIL.
 for sc, n in (("zerofunc", "B indexes the function"), ("pointerone", "B stores the package where the app reloads it"),
-              ("wsidbad", "C precheck resolves customerId")):
+              ("wsidbad", "C precheck resolves customerId"), ("wsdrift", "D leaves the existing workspace untouched")):
     rc, out, calls, _ = play(sc)
     check(rc != 0 and row(out, n) == "FAIL", "%s: %s is %r, not FAIL" % (sc, n, row(out, n)))
 # Resource groups that could not be created or deleted.
