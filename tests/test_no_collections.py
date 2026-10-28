@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A run with nothing to import is a failed run, not a successful one.
 
-IncludeAPTBlockHash=false with no custom collection id deploys without error.
+An empty CustomCollectionIds deploys without error.
 The run used to return empty totals and the audit row said Success.
 """
 

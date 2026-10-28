@@ -35,18 +35,11 @@
                 "description": "SOCRadar Platform API Key"
             }
         },
-        "IncludeAPTBlockHash": {
-            "type": "bool",
-            "defaultValue": true,
-            "metadata": {
-                "description": "Include SOCRadar APT Recommended Block Hash feed (~500 indicators). Add more feeds via Custom Collection IDs."
-            }
-        },
         "CustomCollectionIds": {
             "type": "string",
-            "defaultValue": "",
+            "defaultValue": "0cb06558728b4dc296019c93b78360d1",
             "metadata": {
-                "description": "Comma-separated custom feed collection UUIDs"
+                "description": "Comma-separated feed collection UUIDs. The default is the SOCRadar APT Recommended Block Hash feed (~500 indicators). At least one collection is required."
             }
         },
         "CustomCollectionNames": {
@@ -526,10 +519,6 @@
                                                                                                 {
                             "name": "STORAGE_ACCOUNT_NAME",
                             "value": "[variables('storageAccountName')]"
-                        },
-                        {
-                            "name": "INCLUDE_0cb06558728b4dc296019c93b78360d1",
-                            "value": "[string(parameters('IncludeAPTBlockHash'))]"
                         },
                         {
                             "name": "CUSTOM_COLLECTION_IDS",

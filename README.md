@@ -34,8 +34,7 @@ az deployment group create \
 | `DeployNewWorkspace` | No | `false` | `false` uses the workspace that already exists: the workspace itself is not updated, so its pricing tier, retention and daily cap are never changed, and a name that does not exist fails before anything is created. Set `true` only to create a new workspace named `WorkspaceName`; do not set it on an existing workspace that uses a commitment tier. |
 | `WorkspaceLocation` | No | RG location | Region of the workspace |
 | `SocradarApiKey` | Yes | - | SOCRadar Platform API key |
-| `IncludeAPTBlockHash` | No | true | Include APT Recommended Block Hash feed (~500 indicators) |
-| `CustomCollectionIds` | No | "" | Comma-separated collection UUIDs. This is also how you enable the other recommended collections (see below). At least one collection must be enabled, or every run is recorded as `Failed`. |
+| `CustomCollectionIds` | No | APT Block Hash | Comma-separated collection UUIDs. The default is the APT Recommended Block Hash feed (~500 indicators). Put other IDs here to enable the other recommended collections (see below). At least one collection must be set, or every run is recorded as `Failed`. |
 | `CustomCollectionNames` | No | "" | Comma-separated custom collection names |
 | `InitialLookbackDays` | No | 30 | First run of a collection sends only indicators last seen within this many days. `0` sends the whole feed. |
 | `PackageUri` | No | release `v1.0.0` | URL of the Function App package. Leave the default unless you host the package yourself. |
@@ -46,7 +45,7 @@ az deployment group create \
 
 ## Recommended collections
 
-Only the APT Block Hash feed has a deploy-time switch. To enable another one, put its ID in `CustomCollectionIds`.
+The APT Block Hash feed is the default value of `CustomCollectionIds`. To enable another one, add its ID to that list.
 
 | Collection | ID |
 |------------|----|
@@ -177,9 +176,8 @@ The deployment script verifies that the package URL answers and that the functio
 1. Go to your **Function App** in Azure Portal
 2. Open **Settings > Environment variables**
 3. Edit:
-   - `CUSTOM_COLLECTION_IDS` — comma-separated collection UUIDs
+   - `CUSTOM_COLLECTION_IDS` — comma-separated collection UUIDs (the APT Block Hash feed is in here by default)
    - `CUSTOM_COLLECTION_NAMES` — comma-separated names (same order as IDs)
-   - `INCLUDE_0cb06558728b4dc296019c93b78360d1` — `True` or `False` for the APT Block Hash feed
 4. Click **Apply** — the Function App restarts and, because the timer runs on startup, imports immediately
 
 New collections start from `InitialLookbackDays`. Removed collections leave harmless orphan checkpoints in Table Storage.
