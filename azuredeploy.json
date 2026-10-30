@@ -61,10 +61,10 @@
         "PollingIntervalMinutes": {
             "type": "int",
             "defaultValue": 60,
-            "minValue": 5,
+            "minValue": 10,
             "maxValue": 1440,
             "metadata": {
-                "description": "How often to poll SOCRadar feeds (5-1440 minutes). Values of 60 or more are rounded down to whole hours."
+                "description": "How often to poll SOCRadar feeds (10-1440 minutes). Values of 60 or more are rounded down to whole hours."
             }
         },
         "EnableFeedsTable": {

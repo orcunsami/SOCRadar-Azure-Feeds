@@ -43,8 +43,24 @@ MAX_RETRY_SLEEP = 60
 # checkpoint is therefore cheap, and the overlap is what catches an entry whose
 # latest_seen_date was stamped after the previous run had already read it.
 CHECKPOINT_OVERLAP_HOURS = 48
+# Every host start runs an import (run_on_startup), and a deployment starts the
+# host twice: once when the package pointer changes, once on the explicit restart.
+# A collection that finished cleanly this recently is not fetched again. The
+# smallest polling interval the template accepts is twice this.
+RECENT_RUN_MINUTES = 5
 TOKEN_REFRESH_MARGIN_SECONDS = 300
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def resolve_collection_name(cid: str, supplied: str, position: int) -> str:
+    """The name a collection's indicators carry. A supplied name wins, except one
+    that belongs to a different recommended collection: that is a name left at
+    its default while the ID was changed, and it would label the wrong feed."""
+    own = RECOMMENDED_COLLECTIONS.get(cid)
+    if supplied and supplied in RECOMMENDED_COLLECTIONS.values() and supplied != own:
+        logger.warning("Name %s belongs to another recommended collection, not using it for %s", supplied, cid[:8])
+        supplied = ""
+    return supplied or own or f"Custom-Feed-{position}"
 
 
 def redact(text) -> str:
@@ -64,6 +80,7 @@ class FeedsProcessor:
         self.enable_audit_logging = config.get("enable_audit_logging", False)
         self.initial_lookback_days = int(config.get("initial_lookback_days", 0) or 0)
         self.time_budget_seconds = int(config.get("time_budget_seconds", 0) or 0)
+        self.recent_run_minutes = float(config.get("recent_run_minutes", RECENT_RUN_MINUTES))
 
         self.credential = config.get("credential")
         self.table_client = config.get("table_client")
@@ -96,7 +113,7 @@ class FeedsProcessor:
                 if cid in seen_collection_ids:
                     logger.warning("Skipping duplicate custom collection id: %s", cid)
                     continue
-                name = names[i] if i < len(names) and names[i] else RECOMMENDED_COLLECTIONS.get(cid, f"Custom-Feed-{i + 1}")
+                name = resolve_collection_name(cid, names[i] if i < len(names) else "", i + 1)
                 collections.append({"id": cid, "name": name})
                 seen_collection_ids.add(cid)
                 logger.info("  Custom collection added: %s (%s)", name, cid[:8])
@@ -231,9 +248,24 @@ class FeedsProcessor:
             entity = self.table_client.get_entity(partition_key=collection_id, row_key="state")
         except Exception as e:
             if self._is_not_found(e):
+                self._state = None
                 return None
             raise RuntimeError(f"Checkpoint read failed for {collection_id}: {redact(e)}") from None
+        self._state = entity
         return parse_feed_datetime(entity.get("LastProcessedDate", ""))
+
+    def ran_recently(self) -> Optional[float]:
+        """Minutes since the collection last finished cleanly, when that is within
+        the guard window; None otherwise. Reads the row get_checkpoint just read.
+        A run that lost indicators never counts: the next run has to resend them."""
+        entity = getattr(self, "_state", None)
+        if not entity or self.recent_run_minutes <= 0 or int(entity.get("IndicatorsFailed", 0) or 0):
+            return None
+        last = parse_feed_datetime(entity.get("LastRun", ""))
+        if last is None:
+            return None
+        age = (datetime.now(timezone.utc) - last).total_seconds() / 60
+        return age if 0 <= age < self.recent_run_minutes else None
 
     def save_checkpoint(self, collection_id: str, collection_name: str,
                         processed_through: datetime, total_count: int, new_count: int,
@@ -332,6 +364,10 @@ class FeedsProcessor:
         logger.info("Step 2.3: [%s] Fetched %d indicators", name, len(items))
 
         checkpoint = self.get_checkpoint(cid)
+        age = self.ran_recently()
+        if age is not None:
+            logger.info("Step 2.4: [%s] Skipped: this collection finished %.1f minutes ago (a host start runs an import)", name, age)
+            return result
         window = self.window_start(checkpoint)
         logger.info("Step 2.4: [%s] Checkpoint: %s, window from %s", name,
                     format_checkpoint(checkpoint) if checkpoint else "none (first run)",

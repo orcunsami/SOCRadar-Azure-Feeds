@@ -152,6 +152,7 @@ def make_processor(requests_stub, table=None, sleeps=None, dcr=None, **kwargs):
         credential=FakeCredential(),
         table_client=table if table is not None else FakeTable(),
         dcr_logger=dcr,
+        recent_run_minutes=0,
     )
     config.update(kwargs)
     return feeds_processor.FeedsProcessor(config)
