@@ -35,7 +35,7 @@ az deployment group create \
 | `WorkspaceName` | Yes | - | Microsoft Sentinel workspace name |
 | `DeployNewWorkspace` | No | `false` | `false` uses the workspace that already exists: the workspace itself is not updated, so its pricing tier, retention and daily cap are never changed, and a name that does not exist fails before anything is created. Set `true` only to create a new workspace named `WorkspaceName`; do not set it on an existing workspace that uses a commitment tier. |
 | `WorkspaceLocation` | No | RG location | Region of the workspace |
-| `SocradarApiKey` | Yes | - | SOCRadar Platform API key |
+| `SocradarApiKey` | Yes | - | SOCRadar Platform API key. The deployment asks the feed API once and fails with "SOCRadar rejected the API key (HTTP 401)" if the key is wrong. |
 | `CustomCollectionIds` | No | APT Block Hash | Comma-separated collection UUIDs. The default is the APT Recommended Block Hash feed (~500 indicators). Put other IDs here to enable the other recommended collections (see below). At least one collection must be set, or every run is recorded as `Failed`. |
 | `CustomCollectionNames` | No | SOCRadar-APT-Recommended-Block-Hash | Comma-separated names, same order as the IDs. Used as the indicator label. A blank name is filled in for the seven recommended IDs; any other ID without a name becomes `Custom-Feed-<position>`, so name your own collections and keep the order. |
 | `InitialLookbackDays` | No | 30 | First run of a collection sends only indicators last seen within this many days. `0` sends the whole feed. |
