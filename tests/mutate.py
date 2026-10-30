@@ -72,8 +72,10 @@ MUTATIONS = [
   "tests/test_feed_contract.py"),
  ("table errors pose as first run", "FunctionApp/feeds_processor.py",
   '''            if self._is_not_found(e):
+                self._state = None
                 return None''',
-  '''            return None''',
+  '''            self._state = None
+            return None''',
   "tests/test_feed_contract.py"),
  ("uuid4 ids again", "FunctionApp/stix_builder.py",
   '''        return "indicator--" + str(uuid.uuid5(ID_NAMESPACE, f"{stix_type}|{value}|{collection_id}"))''',
