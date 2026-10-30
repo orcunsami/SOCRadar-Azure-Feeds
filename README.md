@@ -35,7 +35,7 @@ az deployment group create \
 | `WorkspaceLocation` | No | RG location | Region of the workspace |
 | `SocradarApiKey` | Yes | - | SOCRadar Platform API key |
 | `CustomCollectionIds` | No | APT Block Hash | Comma-separated collection UUIDs. The default is the APT Recommended Block Hash feed (~500 indicators). Put other IDs here to enable the other recommended collections (see below). At least one collection must be set, or every run is recorded as `Failed`. |
-| `CustomCollectionNames` | No | "" | Comma-separated custom collection names |
+| `CustomCollectionNames` | No | SOCRadar-APT-Recommended-Block-Hash | Comma-separated names, same order as the IDs. Used as the indicator label. A blank name is filled in for the seven recommended IDs; any other ID without a name becomes `Custom-Feed-<position>`, so name your own collections and keep the order. |
 | `InitialLookbackDays` | No | 30 | First run of a collection sends only indicators last seen within this many days. `0` sends the whole feed. |
 | `PackageUri` | No | release `v1.0.0` | URL of the Function App package. Leave the default unless you host the package yourself. |
 | `PollingIntervalMinutes` | No | 60 | Polling interval (5-1440 minutes). 60 and above is rounded down to whole hours. The schedule is a cron expression, so pick a value that divides 60 (minutes) or 24 (hours): 45 minutes runs at :00 and :45, and 5 hours runs at 0, 5, 10, 15, 20 and then again after 4 hours. |

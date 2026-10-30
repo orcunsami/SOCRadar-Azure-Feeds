@@ -44,9 +44,9 @@
         },
         "CustomCollectionNames": {
             "type": "string",
-            "defaultValue": "",
+            "defaultValue": "SOCRadar-APT-Recommended-Block-Hash",
             "metadata": {
-                "description": "Comma-separated custom collection names (matching IDs order)"
+                "description": "Comma-separated collection names, same order as the IDs. An empty name is filled in for the seven recommended IDs; any other ID without a name becomes Custom-Feed-<position>. If you change the IDs, change the names too."
             }
         },
         "InitialLookbackDays": {
