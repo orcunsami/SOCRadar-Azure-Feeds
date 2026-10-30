@@ -19,8 +19,7 @@ az deployment group create \
     SocradarApiKey=<API_KEY>
 ```
 
-> [!CAUTION]
-> The workspace named in `WorkspaceName` must already exist in the resource group you deploy to. If it does not, the deployment stops at `precheck-workspace-exists` with a `ResourceNotFound` error and creates nothing. No workspace yet? Set `DeployNewWorkspace` to `true`.
+**Note:** the workspace in `WorkspaceName` must already exist in the resource group, unless you set `DeployNewWorkspace` to `true`.
 
 `DeployNewWorkspace` defaults to `false`: the deployment uses your existing workspace and does not update the workspace itself, so its pricing tier (commitment tier included), retention and daily cap stay as they are. It does add its own tables under the workspace and enables Microsoft Sentinel on it if that is not done yet. If you do not have a workspace yet, add `DeployNewWorkspace=true` and the deployment creates one. Deploy in incremental mode (the default); complete mode deletes resources in the group that the template does not list.
 
