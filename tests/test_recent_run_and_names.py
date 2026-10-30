@@ -45,7 +45,7 @@ def state(minutes_ago=None, failed=0, last_run=None):
     return e
 
 
-def run(entity, minutes=5):
+def run(entity, minutes=15):
     table = FakeTable(entity=entity)
     stub = FakeRequests(get_responses=[Response(200, [item("1.1.1.1", ts(datetime.now(timezone.utc)))])],
                         post_responses=[Response(200, {"errors": []})])
@@ -60,8 +60,10 @@ check(not table.upserts, "the skipped run wrote the checkpoint row")
 check(totals["collections_processed"] == 1 and totals["collections_failed"] == 0, "a skipped run is not a failure: %r" % totals)
 check(totals["indicators_created"] == 0, "a skipped run created indicators")
 
-_, _, stub = run(state(10))
-check(stub.post_calls, "a collection that finished 10 minutes ago was skipped")
+_, _, stub = run(state(20))
+check(stub.post_calls, "a collection that finished 20 minutes ago was skipped")
+totals, _, stub = run(state(8))
+check(not stub.post_calls, "the restart Azure adds 8 minutes after a deployment was imported again")
 _, _, stub = run(state(2, failed=3))
 check(stub.post_calls, "a run that lost indicators must be retried at once")
 _, _, stub = run(state())
@@ -70,7 +72,7 @@ _, _, stub = run(state(-30))
 check(stub.post_calls, "a LastRun in the future (clock skew) was skipped")
 _, _, stub = run(state(2), minutes=0)
 check(stub.post_calls, "the guard cannot be switched off")
-check(feeds_processor.RECENT_RUN_MINUTES == 5, "default window changed: %r" % feeds_processor.RECENT_RUN_MINUTES)
+check(feeds_processor.RECENT_RUN_MINUTES == 15, "default window changed: %r" % feeds_processor.RECENT_RUN_MINUTES)
 
 import json
 tmpl = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "azuredeploy.json")))
@@ -82,4 +84,4 @@ if failures:
     for line in failures:
         print("FAIL " + line)
     sys.exit(1)
-print("recent-run guard and name resolution: OK (15 checks)")
+print("recent-run guard and name resolution: OK (17 checks)")

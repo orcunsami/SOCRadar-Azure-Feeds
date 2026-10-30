@@ -43,11 +43,12 @@ MAX_RETRY_SLEEP = 60
 # checkpoint is therefore cheap, and the overlap is what catches an entry whose
 # latest_seen_date was stamped after the previous run had already read it.
 CHECKPOINT_OVERLAP_HOURS = 48
-# Every host start runs an import (run_on_startup), and a deployment starts the
-# host twice: once when the package pointer changes, once on the explicit restart.
-# A collection that finished cleanly this recently is not fetched again. The
-# smallest polling interval the template accepts is twice this.
-RECENT_RUN_MINUTES = 5
+# Every host start runs an import (run_on_startup). A deployment starts the host
+# twice (package pointer change, explicit restart) and Azure restarts it a third
+# time about 5 to 8 minutes later, when it creates the Application Insights
+# smart-detection rule. A collection that finished cleanly this recently is not
+# fetched again. The smallest polling interval the template accepts is twice this.
+RECENT_RUN_MINUTES = 15
 TOKEN_REFRESH_MARGIN_SECONDS = 300
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
