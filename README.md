@@ -203,7 +203,7 @@ traces
 ```bash
 python3 tests/run_all.py        # unit tests, no Azure needed
 python3 tests/mutate.py         # proves the tests catch the bugs they exist for
-TEST_SUBSCRIPTION_ID=<id> bash scripts/test_deploy_paths.sh   # live deploy paths; <id> must be the active az subscription
+TEST_SUBSCRIPTION_ID=<id> TEST_SOCRADAR_API_KEY=<key> bash scripts/test_deploy_paths.sh   # live deploy paths; <id> must be the active az subscription, the key a live SOCRadar API key
 bash scripts/portal_test.sh     # live: two imports, judged from SOCRadar_Feeds_Audit_CL and ThreatIntelIndicators (needs scripts/test.config)
 python3 scripts/build_package.py --out dist/FunctionApp.zip --deps-from <released FunctionApp.zip>
 ```

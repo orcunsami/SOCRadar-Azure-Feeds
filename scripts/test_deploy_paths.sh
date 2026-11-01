@@ -18,7 +18,7 @@
 #                   at 15:10 on 7 Sep 2026. The package is now staged as a blob
 #                   by the deploymentScript.
 #
-# Four paths:
+# Six paths:
 #   A  missing workspace, defaults (DeployNewWorkspace=false) -> fails, resource group stays EMPTY
 #   B  DeployNewWorkspace=true (opt-in create) -> succeeds, guard SKIPPED, functions INDEXED
 #   C  existing workspace, defaults       -> guard SUCCEEDS and resolves customerId
