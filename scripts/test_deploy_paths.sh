@@ -23,6 +23,14 @@
 #   B  DeployNewWorkspace=true (opt-in create) -> succeeds, guard SKIPPED, functions INDEXED
 #   C  existing workspace, defaults       -> guard SUCCEEDS and resolves customerId
 #   D  redeploy of B at the defaults      -> succeeds, workspace untouched, the app still has functions
+#   E  existing workspace, a key SOCRadar rejects -> Failed in triggerFirstRun, the banner text says so
+#   F  what B's first window left in the workspace -> one import, the later host start skipped
+#      (Success with 0 created), every indicator tagged with the collection name
+#
+# The deployment checks the SOCRadar API key (a 401 fails it), so B, C and D need a key
+# SOCRadar accepts: TEST_SOCRADAR_API_KEY is required. "placeholder" no longer deploys.
+# F waits up to 25 minutes for the workspace (ingestion lags); TEST_FIRST_RUN_WAIT and
+# TEST_POLL (seconds) shorten that for the fake-az tests.
 #
 # B and D assert three things, none of them the provisioning state: the function
 # count, the shape of the package pointer, and -- for B -- that the app still
@@ -46,12 +54,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEMPLATE="$REPO_ROOT/azuredeploy.json"
 
 LOCATION="${TEST_LOCATION:-northeurope}"
-API_KEY="${TEST_SOCRADAR_API_KEY:-placeholder}"
+API_KEY="${TEST_SOCRADAR_API_KEY:-}"
 KEEP="${KEEP_RESOURCES:-false}"
 
 SFX=$(python3 -c "import uuid;print(uuid.uuid4().hex[:4])") && [ -n "$SFX" ] || { echo "ERROR: CANNOT MEASURE: no suffix for the resource group names"; exit 1; }
 RG_APP="rg-feeds-paths-$SFX"
 RG_C="rg-feeds-paths-c-$SFX"
+RG_E="rg-feeds-paths-e-$SFX"
+DEAD_KEY="invalid-key-$SFX"
 WS="ws-feeds-paths-$SFX"
 MISSING="ws-does-not-exist-$SFX"
 
@@ -63,6 +73,11 @@ if ! ACTIVE_SUB=$(az account show --query id -o tsv); then
 fi
 if [ -z "${TEST_SUBSCRIPTION_ID:-}" ] || [ "$ACTIVE_SUB" != "$TEST_SUBSCRIPTION_ID" ]; then
     echo "ERROR: set TEST_SUBSCRIPTION_ID to the subscription to deploy into; az is on '${ACTIVE_SUB:-none}'"
+    exit 1
+fi
+
+if [ -z "$API_KEY" ]; then
+    echo "ERROR: set TEST_SOCRADAR_API_KEY to a key SOCRadar accepts: the deployment fails on a 401 and B, C and D would fail for that reason"
     exit 1
 fi
 
@@ -95,13 +110,13 @@ expect() {
 
 cleanup() {
     local rc=$? bad=0
-    rm -f "$SECRETS_FILE"
+    rm -f "$SECRETS_FILE" "$DEAD_FILE"
     if [ "$KEEP" = true ]; then
-        echo "KEEP_RESOURCES=true, leaving $RG_APP and $RG_C in place"
+        echo "KEEP_RESOURCES=true, leaving $RG_APP, $RG_C and $RG_E in place"
         return
     fi
     local queued="" exists
-    for rg in "$RG_APP" "$RG_C"; do
+    for rg in "$RG_APP" "$RG_C" "$RG_E"; do
         # A group the early exit never created has nothing to delete (and nothing to bill).
         # A failed look is not "absent": try the delete anyway.
         exists=$(az group exists -n "$rg" 2>/dev/null) || exists=unknown
@@ -116,22 +131,28 @@ cleanup() {
     [ "$rc" -eq 0 ] && [ "$bad" -ne 0 ] && exit 1
     return 0
 }
+SECRETS_FILE=""; DEAD_FILE=""
 trap cleanup EXIT
 
 # The key goes in a 0600 file, not on the az command line (ps shows argv).
 umask 077
 SECRETS_FILE=$(mktemp)
-SK="$API_KEY" python3 -c '
+DEAD_FILE=$(mktemp)
+mkparams() {  # mkparams <key> <file>
+    SK="$1" python3 -c '
 import json, os
 print(json.dumps({"$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
-                  "contentVersion": "1.0.0.0", "parameters": {"SocradarApiKey": {"value": os.environ["SK"]}}}))' > "$SECRETS_FILE"
+                  "contentVersion": "1.0.0.0", "parameters": {"SocradarApiKey": {"value": os.environ["SK"]}}}))' > "$2"
+}
+mkparams "$API_KEY" "$SECRETS_FILE"
+mkparams "$DEAD_KEY" "$DEAD_FILE"
 
 deploy() {  # deploy <rg> <name> <extra params...>
     local rg="$1" name="$2"; shift 2
     local err rc msg
     err=$(mktemp)
     az deployment group create -g "$rg" -n "$name" --template-file "$TEMPLATE" \
-        --parameters @"$SECRETS_FILE" WorkspaceLocation="$LOCATION" "$@" \
+        --parameters @"${PARAM_FILE:-$SECRETS_FILE}" WorkspaceLocation="$LOCATION" "$@" \
         -o none 2>"$err"
     rc=$?
     if [ "$rc" -ne 0 ]; then
@@ -214,13 +235,13 @@ failed_step() {  # failed_step <rg> <deployment>: names, empty, or UNREAD
     printf '%s\n' "$out" | sort -u | tr '\n' ' '
 }
 
-echo "[1/5] Creating $RG_APP and $RG_C ..."
-for rg in "$RG_APP" "$RG_C"; do
+echo "[1/7] Creating $RG_APP, $RG_C and $RG_E ..."
+for rg in "$RG_APP" "$RG_C" "$RG_E"; do
     az group create -n "$rg" -l "$LOCATION" -o none || { echo "ERROR: CANNOT MEASURE: could not create $rg"; exit 1; }
 done
 
 # --- A: the customer's typo, defaults left alone --------------------------------------
-echo "[2/5] Path A: missing workspace with DeployNewWorkspace=false ..."
+echo "[2/7] Path A: missing workspace with DeployNewWorkspace=false ..."
 deploy "$RG_APP" path-a WorkspaceName="$MISSING"
 rd state az deployment group show -g "$RG_APP" -n path-a --query properties.provisioningState -o tsv
 rd left az resource list -g "$RG_APP" --query "length(@)" -o tsv
@@ -233,7 +254,7 @@ elif printf '%s' "$steps" | grep -q 'precheck-workspace-exists'; then row "A bla
 else row "A blames the precheck" FAIL "failed step(s) were: ${steps:-<none read>}"; fi
 
 # --- B: greenfield, and the package has to actually load -------------------------------
-echo "[3/5] Path B: new workspace name with the parameters at their defaults ..."
+echo "[3/7] Path B: new workspace name with the parameters at their defaults ..."
 deploy "$RG_APP" path-b WorkspaceName="$WS" DeployNewWorkspace=true
 rd state az deployment group show -g "$RG_APP" -n path-b --query properties.provisioningState -o tsv
 steps=$(failed_step "$RG_APP" path-b)
@@ -263,7 +284,7 @@ case "$s" in
 esac
 
 # --- C: the guard's success branch, which B never exercises ----------------------------
-echo "[4/5] Path C: existing workspace, DeployNewWorkspace=false ..."
+echo "[4/7] Path C: existing workspace, DeployNewWorkspace=false ..."
 if ! az monitor log-analytics workspace create -g "$RG_C" -n "$WS" -l "$LOCATION" --retention-time 30 -o none; then
     row "C workspace for the test" CANNOT "az monitor log-analytics workspace create failed (reason above)"
 else
@@ -281,7 +302,7 @@ else
 fi
 
 # --- D: redeploy. The forceUpdateTag test, and it only shows in the count ---------------
-echo "[5/5] Path D: redeploying $RG_APP at the defaults ..."
+echo "[5/7] Path D: redeploying $RG_APP at the defaults ..."
 # Non-default retention first: the redeploy must leave it, and lastSkuUpdate, exactly as they were.
 az monitor log-analytics workspace update -g "$RG_APP" -n "$WS" --retention-time 90 -o none 2>/dev/null
 before=$(az monitor log-analytics workspace show -g "$RG_APP" -n "$WS" --query "[retentionInDays, sku.name, sku.lastSkuUpdate]" -o tsv 2>/dev/null | tr '\n' ' ')
@@ -306,9 +327,91 @@ case "$s" in
     *) row "D still stores the package where the app reloads it" FAIL "pointer shape is '$s' after the redeploy" ;;
 esac
 
+# --- E: the key SOCRadar rejects stops the deployment, and says why -------------------------
+echo "[6/7] Path E: existing workspace, a key SOCRadar rejects ..."
+if ! az monitor log-analytics workspace create -g "$RG_E" -n "$WS" -l "$LOCATION" --retention-time 30 -o none; then
+    row "E workspace for the test" CANNOT "az monitor log-analytics workspace create failed (reason above)"
+else
+    PARAM_FILE="$DEAD_FILE" deploy "$RG_E" path-e WorkspaceName="$WS"
+    rd state az deployment group show -g "$RG_E" -n path-e --query properties.provisioningState -o tsv
+    steps=$(failed_step "$RG_E" path-e)
+    expect "E deployment fails" "$state" Failed "$state" "expected Failed, got '$state': a rejected key must not give a green deploy"
+    if [ "$steps" = "$UNREAD" ]; then row "E fails in the key check" CANNOT "the az read failed"
+    elif printf '%s' "$steps" | grep -q 'triggerFirstRun'; then row "E fails in the key check" PASS "triggerFirstRun"
+    else row "E fails in the key check" FAIL "failed step(s) were: ${steps:-<none read>}"; fi
+    # The text the portal banner shows is the failed operation's status message.
+    rd msg az deployment operation group list -g "$RG_E" -n path-e \
+        --query "[?properties.targetResource.resourceName=='triggerFirstRun'].properties.statusMessage" -o json
+    if [ "$msg" = "$UNREAD" ]; then row "E banner names the rejected key" CANNOT "the az read failed"
+    elif printf '%s' "$msg" | grep -q 'rejected the API key'; then row "E banner names the rejected key" PASS "message carries 'rejected the API key'"
+    else row "E banner names the rejected key" FAIL "status message was: $(printf '%s' "$msg" | head -c 200)"; fi
+fi
+
+# --- F: what the first window left in the workspace ------------------------------------
+echo "[7/7] Path F: first-run audit and indicator names in the workspace of path B (up to 25 min) ..."
+rd cust az monitor log-analytics workspace show -g "$RG_APP" -n "$WS" --query customerId -o tsv
+if [ "$cust" = "$UNREAD" ]; then
+    row "F first window readable" CANNOT "the workspace id could not be read"
+else
+    # Ingestion lags by minutes: poll until the first import's audit row, and a row
+    # for another host start inside its 15 minute window, are both visible.
+    res=$(python3 - "$cust" "Block-Hash" <<'PYEOF'
+import json, os, subprocess, sys, time
+from datetime import datetime, timedelta
+cust = sys.argv[1]
+POLL = int(os.environ.get("TEST_POLL", "30"))
+def q(kql):
+    r = subprocess.run(["az", "monitor", "log-analytics", "query", "-w", cust, "--analytics-query", kql, "-o", "json"],
+                       capture_output=True, text=True)
+    return json.loads(r.stdout) if r.returncode == 0 else None
+def ts(v):
+    v = v.rstrip("Z")
+    if "." in v:
+        a, b = v.split(".")
+        v = a + "." + b[:6]
+    return datetime.fromisoformat(v)
+deadline = time.time() + int(os.environ.get("TEST_FIRST_RUN_WAIT", "1500"))
+window = None
+while time.time() < deadline:
+    rows = q("SOCRadar_Feeds_Audit_CL | project TimeGenerated, Status, IndicatorsCreated | order by TimeGenerated asc")
+    if rows is not None:
+        made = [r for r in rows if int(r.get("IndicatorsCreated") or 0) > 0]
+        if made:
+            t0 = ts(made[0]["TimeGenerated"])
+            inwin = [r for r in rows if t0 <= ts(r["TimeGenerated"]) <= t0 + timedelta(minutes=15)]
+            window = (len(inwin), sum(1 for r in inwin if int(r.get("IndicatorsCreated") or 0) > 0),
+                      sum(1 for r in rows if r["Status"] != "Success"))
+            if len(inwin) >= 2:
+                break
+    time.sleep(POLL)
+if window is None:
+    print("UNREADABLE"); sys.exit(0)
+ti = None
+while time.time() < deadline + 300:
+    ti = q("ThreatIntelIndicators | where SourceSystem == 'SOCRadar Threat Feeds' | summarize n=count(), tagged=countif(Tags has 'SOCRadar-APT-Recommended-Block-Hash')")
+    if ti and int(ti[0]["n"]) > 0:
+        break
+    time.sleep(POLL)
+n, tagged = (int(ti[0]["n"]), int(ti[0]["tagged"])) if ti else (-1, -1)
+print("RESULT", window[0], window[1], window[2], n, tagged)
+PYEOF
+)
+    read -r tag w_rows w_made bad ti_n ti_tagged <<< "$res"
+    if [ "$tag" != RESULT ]; then
+        row "F first window readable" CANNOT "the audit table never answered with an import row: $res"
+    else
+        expect "F first import ran once in its window" "$w_made" 1 "1 row with created > 0" "$w_made rows with created > 0 inside 15 minutes: the host-start guard did not hold"
+        if [ "$w_rows" -ge 2 ]; then row "F later host start recorded as skipped" PASS "$((w_rows - 1)) more row(s) in the window, 0 created"
+        else row "F later host start recorded as skipped" CANNOT "only one audit row in the window: no second host start was observed"; fi
+        expect "F no audit row is a failure" "$bad" 0 "every row Success" "$bad audit row(s) not Success"
+        if [ "$ti_n" -gt 0 ] && [ "$ti_n" = "$ti_tagged" ]; then row "F indicators carry the collection name" PASS "$ti_n of $ti_n tagged"
+        else row "F indicators carry the collection name" FAIL "$ti_tagged of $ti_n indicators carry the name tag"; fi
+    fi
+fi
+
 echo
 if [ "$fails" -eq 0 ]; then
-    echo "All four deployment paths behaved as asserted."
+    echo "All six deployment paths behaved as asserted."
 else
     echo "$fails assertion(s) failed."
 fi
