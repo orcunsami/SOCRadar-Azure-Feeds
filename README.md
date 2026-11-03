@@ -160,6 +160,18 @@ Indicators with an unsupported type or hash length are counted and skipped, not 
 | hash (32 / 40 / 64 chars) | `[file:hashes.MD5 = '...']`, `SHA-1`, `SHA-256` |
 | email | `[email-addr:value = '...']` |
 
+## Where to see it in the Microsoft Defender portal
+
+Microsoft Sentinel in the Azure portal is supported until 31 March 2027; after that it is available only in the Microsoft Defender portal. The data lands in the same workspace tables either way.
+
+| What | Defender portal |
+|---|---|
+| Indicators | Threat intelligence > Intel management |
+| Indicators and feed tables in KQL | Investigation & response > Hunting > Advanced hunting: `ThreatIntelIndicators`, `SOCRadar_Feeds_CL`, `SOCRadar_Feeds_Audit_CL` |
+| Dashboard | Microsoft Sentinel > Threat management > Workbooks |
+
+The Function App, its log stream and Application Insights stay in the Azure portal.
+
 ## Post-Deployment
 
 The deployment script verifies that the package URL answers and that the function was indexed, then restarts the app so the first import runs. Custom tables receive their first rows 10-15 minutes after the first run; that delay is normal for a newly created table.
