@@ -1,0 +1,74 @@
+id: 7d1c4a52-3b0e-4c1d-9a55-0f6a2b9c1e05
+name: SOCRadar Threat Feeds Threat Hunt Process Hash
+description: |
+  'Matches active SOCRadar Threat Feeds file hash indicators (SHA-256, SHA-1, MD5) against the hashes of processes created, per ASIM process events.'
+severity: Medium
+requiredDataConnectors:
+  - connectorId: ThreatIntelligenceUploadIndicatorsAPI
+    dataTypes:
+      - ThreatIntelIndicators
+queryFrequency: 15m
+queryPeriod: 14d
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - Execution
+relevantTechniques:
+  - T1204
+customDetails:
+  Collection: Collection
+  Confidence: Confidence
+  ValidUntil: ValidUntil
+  IndicatorId: IndicatorId
+  MatchedField: MatchedField
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 1h
+    matchingMethod: AllEntities
+eventGroupingSettings:
+  aggregationKind: AlertPerResult
+alertDetailsOverride:
+  alertDisplayNameFormat: 'SOCRadar Threat Feed match: {{Hash}} ({{Collection}})'
+  alertDescriptionFormat: '**SOCRadar Threat Feeds indicator match**\n\nIndicator {{Hash}} from collection {{Collection}} (confidence {{Confidence}}, valid until {{ValidUntil}}) was seen in the {{SourceTable}} table (matched on {{MatchedField}}).\n'
+  alertDynamicProperties:
+    - alertProperty: AlertLink
+      value: https://platform.socradar.com
+query: |
+  let ioc_lookBack = 14d;
+  let event_lookBack = 1h;
+  let indicators = ThreatIntelIndicators
+      | where SourceSystem == "SOCRadar Threat Feeds"
+      | where ObservableKey startswith "file:hashes"
+      | where isnotempty(ObservableValue)
+      | where TimeGenerated >= ago(ioc_lookBack)
+      | summarize LatestIndicatorTime = arg_max(TimeGenerated, *) by Id
+      | where IsActive == true and ValidUntil > now()
+      | extend Collection = coalesce(extract(@"^SOCRadar feed: (.+)$", 1, tostring(Data.description)), "SOCRadar feed")
+      | extend IndicatorHash = tolower(ObservableValue)
+      | project IndicatorHash, Collection, Confidence, ValidUntil, IndicatorId = Id;
+  _Im_ProcessCreate(starttime = ago(event_lookBack))
+  | extend HashCandidates = pack_array(
+      bag_pack("Algorithm", "SHA256", "Hash", tolower(TargetProcessSHA256)),
+      bag_pack("Algorithm", "SHA1", "Hash", tolower(TargetProcessSHA1)),
+      bag_pack("Algorithm", "MD5", "Hash", tolower(TargetProcessMD5)))
+  | mv-expand HashCandidates
+  | extend HashType = tostring(HashCandidates.Algorithm), EventHash = tostring(HashCandidates.Hash)
+  | where isnotempty(EventHash)
+  | join kind=inner indicators on $left.EventHash == $right.IndicatorHash
+  | project Hash = EventHash, HashType, MatchedField = strcat("TargetProcess", HashType), Collection, Confidence, ValidUntil, IndicatorId, SourceTable = column_ifexists("Type", ""), DvcHostname, TimeGenerated
+entityMappings:
+  - entityType: FileHash
+    fieldMappings:
+      - identifier: Value
+        columnName: Hash
+      - identifier: Algorithm
+        columnName: HashType
+  - entityType: Host
+    fieldMappings:
+      - identifier: HostName
+        columnName: DvcHostname
+version: 1.0.0
+kind: Scheduled

@@ -44,6 +44,8 @@ az deployment group create \
 | `EnableFeedsTable` | No | true | Store indicators in SOCRadar_Feeds_CL |
 | `EnableAuditLogging` | No | true | Log runs to SOCRadar_Feeds_Audit_CL |
 | `EnableWorkbook` | No | true | Deploy the dashboard (needs `EnableFeedsTable`) |
+| `EnableThreatHuntRules` | No | true | Create the five threat hunting analytics rules (see below) |
+| `ThreatHuntRuleSeverity` | No | Medium | Severity of the alerts those rules raise: Informational, Low, Medium or High |
 
 ## Recommended collections
 
@@ -133,6 +135,7 @@ register that provider if you want the smart-detection alert.
 - **Storage Account** - `FeedState` table holding one checkpoint per collection, and the `function-releases` container holding the package
 - **DCE + DCR + Custom Tables** (optional) - SOCRadar_Feeds_CL and SOCRadar_Feeds_Audit_CL
 - **Workbook** (optional) - SOCRadar Threat Feeds Dashboard
+- **Analytics rules** (optional) - five threat hunting rules, `EnableThreatHuntRules`
 - **Deployment Script** - Downloads the package, stages it in the storage account, restarts the app and waits until a function is indexed (see above)
 
 ## How a run works
@@ -171,6 +174,25 @@ Microsoft Sentinel in the Azure portal is supported until 31 March 2027; after t
 | Dashboard | Microsoft Sentinel > Threat management > Workbooks |
 
 The Function App, its log stream and Application Insights stay in the Azure portal.
+
+## Threat hunting rules
+
+Five scheduled analytics rules compare your own logs with the indicators this app uploads. When a SOCRadar Threat Feeds indicator shows up in your data, the rule raises an alert and an incident, one alert per match.
+
+| Rule | Looks at | Matches |
+|------|----------|---------|
+| SOCRadar Threat Feeds Threat Hunt IP | `_Im_NetworkSession` | source or destination address |
+| SOCRadar Threat Feeds Threat Hunt Domain | `_Im_Dns` | DNS query |
+| SOCRadar Threat Feeds Threat Hunt URL | `_Im_WebSession` | URL |
+| SOCRadar Threat Feeds Threat Hunt File Hash | `_Im_FileEvent` | SHA-256, SHA-1 and MD5 of the file |
+| SOCRadar Threat Feeds Threat Hunt Process Hash | `_Im_ProcessCreate` | SHA-256, SHA-1 and MD5 of the process |
+
+- The rules read the logs through the built-in ASIM parsers, which every Microsoft Sentinel workspace already has. They need your network, DNS, web, file or process events in the workspace (firewall, proxy, DNS, Defender for Endpoint and similar connectors, or the native `ASim*Logs` tables). With none of those, the rules are created and stay quiet.
+- Only indicators from this app count (`SourceSystem` is `SOCRadar Threat Feeds`), and only while they are active and not expired. SOCRadar TAXII indicators are not matched.
+- Runs every 15 minutes. It looks at your events from the last hour and at indicators written or updated in the last 14 days, the longest look back Microsoft Sentinel allows for a scheduled rule. An indicator the feed has not sent for more than 14 days is not matched until the feed sends it again.
+- Each alert carries the collection name, confidence, expiry, indicator id and the field that matched, and maps the IP, domain, URL or file hash and the host as entities. Alerts about the same indicator and host are grouped into one incident for an hour.
+- The same rules are in `Analytic Rules/`, in the Content Hub rule format.
+- To skip them, deploy with `EnableThreatHuntRules=false`. To stop them later, disable the rules in Microsoft Sentinel > Analytics. The rules are not created or changed on an existing installation until you deploy again.
 
 ## Post-Deployment
 

@@ -8,7 +8,8 @@ Bytecode is disabled for the child runs: a same-size mutation applied and
 reverted inside one second leaves a .pyc that still looks current, and the next
 run would execute the mutated bytecode.
 
-    python3 tests/mutate.py
+    python3 tests/mutate.py            # everything
+    python3 tests/mutate.py hunt       # only mutations whose name contains "hunt"
 """
 
 import json
@@ -666,6 +667,28 @@ else''',
             "type": "bool",
             "defaultValue": true,''',
   "tests/test_workspace_precheck.py"),
+ ("hunt rule trusts every indicator", "Analytic Rules/SOCRadarFeedsThreatHuntIP.yaml",
+  """    | where SourceSystem == "SOCRadar Threat Feeds"\n""", "", "tests/test_threat_hunt_rules.py"),
+ ("hunt rule wrong indicator type", "Analytic Rules/SOCRadarFeedsThreatHuntDomain.yaml",
+  """ObservableKey == "domain-name:value\"""", """ObservableKey == "url:value\"""", "tests/test_threat_hunt_rules.py"),
+ ("hunt rule entity column not returned", "Analytic Rules/SOCRadarFeedsThreatHuntUrl.yaml",
+  "columnName: Url", "columnName: Link", "tests/test_threat_hunt_rules.py"),
+ ("hunt rule drops the SHA-1 match", "Analytic Rules/SOCRadarFeedsThreatHuntHash.yaml",
+  """    bag_pack("Algorithm", "SHA1", "Hash", tolower(TargetFileSHA1)),\n""", "", "tests/test_threat_hunt_rules.py"),
+ ("hunt rule workspace-deployed parser", "Analytic Rules/SOCRadarFeedsThreatHuntHash.yaml",
+  "_Im_FileEvent(starttime", "imFileEvent(starttime", "tests/test_threat_hunt_rules.py"),
+ ("hunt rule alias first", "Analytic Rules/SOCRadarFeedsThreatHuntProcess.yaml",
+  "HashType = tostring(HashCandidates.Algorithm)", "first = tostring(HashCandidates.Algorithm)", "tests/test_threat_hunt_rules.py"),
+ ("template hunt rule keeps expired indicators", "azuredeploy.json",
+  r"""| where IsActive == true and ValidUntil > now()\n""", r"""| where IsActive == true\n""", "tests/test_threat_hunt_rules.py"),
+ ("template hunt rule beyond 14d", "azuredeploy.json",
+  '"queryPeriod": "P14D"', '"queryPeriod": "P30D"', "tests/test_threat_hunt_rules.py"),
+ ("template hunt rule cannot be switched off", "azuredeploy.json",
+  """"condition": "[parameters('EnableThreatHuntRules')]\"""", """"condition": "[true()]\"""", "tests/test_threat_hunt_rules.py"),
+ ("template hunt rule severity hard-coded", "azuredeploy.json",
+  """"severity": "[parameters('ThreatHuntRuleSeverity')]\"""", '"severity": "Low"', "tests/test_threat_hunt_rules.py"),
+ ("template hunt rule hash filter loosened", "azuredeploy.json",
+  r"""ObservableKey startswith \"file:hashes\"""", r"""ObservableKey startswith \"file:\"""", "tests/test_threat_hunt_rules.py"),
 ]
 
 
@@ -688,6 +711,9 @@ def syntax_error(path, text):
     return None
 
 
+ONLY = sys.argv[1] if len(sys.argv) > 1 else ""   # optional: run only mutations whose name contains this
+if ONLY:
+    MUTATIONS = [m for m in MUTATIONS if ONLY in m[0]]
 blind, fake = [], []
 for name, path, old, new, test in MUTATIONS:   # the originals must parse, or every mutant is a fake catch
     err = syntax_error(path, open(os.path.join(REPO, path), encoding="utf-8").read())

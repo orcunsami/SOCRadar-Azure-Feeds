@@ -1,0 +1,417 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Test only: a DCE and a DCR that write sample events into the native ASIM tables, so the Threat Feeds hunting rules can be tried without real logs. Not part of the product."
+  },
+  "parameters": {
+    "WorkspaceName": {
+      "type": "string"
+    },
+    "Location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    }
+  },
+  "variables": {
+    "dceName": "[concat('dce-e2e-asim-', uniqueString(resourceGroup().id))]",
+    "dcrName": "[concat('dcr-e2e-asim-', uniqueString(resourceGroup().id))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Insights/dataCollectionEndpoints",
+      "apiVersion": "2023-03-11",
+      "name": "[variables('dceName')]",
+      "location": "[parameters('Location')]",
+      "properties": {
+        "networkAcls": {
+          "publicNetworkAccess": "Enabled"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Insights/dataCollectionRules",
+      "apiVersion": "2023-03-11",
+      "name": "[variables('dcrName')]",
+      "location": "[parameters('Location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('dceName'))]"
+      ],
+      "properties": {
+        "dataCollectionEndpointId": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('dceName'))]",
+        "streamDeclarations": {
+          "Custom-E2ENetwork": {
+            "columns": [
+              {
+                "name": "TimeGenerated",
+                "type": "datetime"
+              },
+              {
+                "name": "EventStartTime",
+                "type": "datetime"
+              },
+              {
+                "name": "EventEndTime",
+                "type": "datetime"
+              },
+              {
+                "name": "EventCount",
+                "type": "int"
+              },
+              {
+                "name": "EventType",
+                "type": "string"
+              },
+              {
+                "name": "EventResult",
+                "type": "string"
+              },
+              {
+                "name": "EventSeverity",
+                "type": "string"
+              },
+              {
+                "name": "EventProduct",
+                "type": "string"
+              },
+              {
+                "name": "EventVendor",
+                "type": "string"
+              },
+              {
+                "name": "EventSchemaVersion",
+                "type": "string"
+              },
+              {
+                "name": "DvcHostname",
+                "type": "string"
+              },
+              {
+                "name": "SrcIpAddr",
+                "type": "string"
+              },
+              {
+                "name": "DstIpAddr",
+                "type": "string"
+              }
+            ]
+          },
+          "Custom-E2EDns": {
+            "columns": [
+              {
+                "name": "TimeGenerated",
+                "type": "datetime"
+              },
+              {
+                "name": "EventStartTime",
+                "type": "datetime"
+              },
+              {
+                "name": "EventEndTime",
+                "type": "datetime"
+              },
+              {
+                "name": "EventCount",
+                "type": "int"
+              },
+              {
+                "name": "EventType",
+                "type": "string"
+              },
+              {
+                "name": "EventResult",
+                "type": "string"
+              },
+              {
+                "name": "EventSeverity",
+                "type": "string"
+              },
+              {
+                "name": "EventProduct",
+                "type": "string"
+              },
+              {
+                "name": "EventVendor",
+                "type": "string"
+              },
+              {
+                "name": "EventSchemaVersion",
+                "type": "string"
+              },
+              {
+                "name": "DvcHostname",
+                "type": "string"
+              },
+              {
+                "name": "SrcIpAddr",
+                "type": "string"
+              },
+              {
+                "name": "DnsQuery",
+                "type": "string"
+              }
+            ]
+          },
+          "Custom-E2EWeb": {
+            "columns": [
+              {
+                "name": "TimeGenerated",
+                "type": "datetime"
+              },
+              {
+                "name": "EventStartTime",
+                "type": "datetime"
+              },
+              {
+                "name": "EventEndTime",
+                "type": "datetime"
+              },
+              {
+                "name": "EventCount",
+                "type": "int"
+              },
+              {
+                "name": "EventType",
+                "type": "string"
+              },
+              {
+                "name": "EventResult",
+                "type": "string"
+              },
+              {
+                "name": "EventSeverity",
+                "type": "string"
+              },
+              {
+                "name": "EventProduct",
+                "type": "string"
+              },
+              {
+                "name": "EventVendor",
+                "type": "string"
+              },
+              {
+                "name": "EventSchemaVersion",
+                "type": "string"
+              },
+              {
+                "name": "DvcHostname",
+                "type": "string"
+              },
+              {
+                "name": "SrcIpAddr",
+                "type": "string"
+              },
+              {
+                "name": "Url",
+                "type": "string"
+              }
+            ]
+          },
+          "Custom-E2EFile": {
+            "columns": [
+              {
+                "name": "TimeGenerated",
+                "type": "datetime"
+              },
+              {
+                "name": "EventStartTime",
+                "type": "datetime"
+              },
+              {
+                "name": "EventEndTime",
+                "type": "datetime"
+              },
+              {
+                "name": "EventCount",
+                "type": "int"
+              },
+              {
+                "name": "EventType",
+                "type": "string"
+              },
+              {
+                "name": "EventResult",
+                "type": "string"
+              },
+              {
+                "name": "EventSeverity",
+                "type": "string"
+              },
+              {
+                "name": "EventProduct",
+                "type": "string"
+              },
+              {
+                "name": "EventVendor",
+                "type": "string"
+              },
+              {
+                "name": "EventSchemaVersion",
+                "type": "string"
+              },
+              {
+                "name": "DvcHostname",
+                "type": "string"
+              },
+              {
+                "name": "TargetFilePath",
+                "type": "string"
+              },
+              {
+                "name": "TargetFileSHA256",
+                "type": "string"
+              },
+              {
+                "name": "TargetFileSHA1",
+                "type": "string"
+              },
+              {
+                "name": "TargetFileMD5",
+                "type": "string"
+              }
+            ]
+          },
+          "Custom-E2EProcess": {
+            "columns": [
+              {
+                "name": "TimeGenerated",
+                "type": "datetime"
+              },
+              {
+                "name": "EventStartTime",
+                "type": "datetime"
+              },
+              {
+                "name": "EventEndTime",
+                "type": "datetime"
+              },
+              {
+                "name": "EventCount",
+                "type": "int"
+              },
+              {
+                "name": "EventType",
+                "type": "string"
+              },
+              {
+                "name": "EventResult",
+                "type": "string"
+              },
+              {
+                "name": "EventSeverity",
+                "type": "string"
+              },
+              {
+                "name": "EventProduct",
+                "type": "string"
+              },
+              {
+                "name": "EventVendor",
+                "type": "string"
+              },
+              {
+                "name": "EventSchemaVersion",
+                "type": "string"
+              },
+              {
+                "name": "DvcHostname",
+                "type": "string"
+              },
+              {
+                "name": "TargetProcessName",
+                "type": "string"
+              },
+              {
+                "name": "TargetProcessSHA256",
+                "type": "string"
+              },
+              {
+                "name": "TargetProcessSHA1",
+                "type": "string"
+              },
+              {
+                "name": "TargetProcessMD5",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "destinations": {
+          "logAnalytics": [
+            {
+              "workspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
+              "name": "law"
+            }
+          ]
+        },
+        "dataFlows": [
+          {
+            "streams": [
+              "Custom-E2ENetwork"
+            ],
+            "destinations": [
+              "law"
+            ],
+            "transformKql": "source",
+            "outputStream": "Microsoft-ASimNetworkSessionLogs"
+          },
+          {
+            "streams": [
+              "Custom-E2EDns"
+            ],
+            "destinations": [
+              "law"
+            ],
+            "transformKql": "source",
+            "outputStream": "Microsoft-ASimDnsActivityLogs"
+          },
+          {
+            "streams": [
+              "Custom-E2EWeb"
+            ],
+            "destinations": [
+              "law"
+            ],
+            "transformKql": "source",
+            "outputStream": "Microsoft-ASimWebSessionLogs"
+          },
+          {
+            "streams": [
+              "Custom-E2EFile"
+            ],
+            "destinations": [
+              "law"
+            ],
+            "transformKql": "source",
+            "outputStream": "Microsoft-ASimFileEventLogs"
+          },
+          {
+            "streams": [
+              "Custom-E2EProcess"
+            ],
+            "destinations": [
+              "law"
+            ],
+            "transformKql": "source",
+            "outputStream": "Microsoft-ASimProcessEventLogs"
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "dceEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('dceName'))).logsIngestion.endpoint]"
+    },
+    "dcrImmutableId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('dcrName'))).immutableId]"
+    },
+    "dcrName": {
+      "type": "string",
+      "value": "[variables('dcrName')]"
+    }
+  }
+}

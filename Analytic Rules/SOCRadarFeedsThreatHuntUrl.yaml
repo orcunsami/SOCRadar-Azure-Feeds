@@ -1,0 +1,69 @@
+id: 7d1c4a52-3b0e-4c1d-9a55-0f6a2b9c1e03
+name: SOCRadar Threat Feeds Threat Hunt URL
+description: |
+  'Matches active SOCRadar Threat Feeds URL indicators against ASIM web sessions.'
+severity: Medium
+requiredDataConnectors:
+  - connectorId: ThreatIntelligenceUploadIndicatorsAPI
+    dataTypes:
+      - ThreatIntelIndicators
+queryFrequency: 15m
+queryPeriod: 14d
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - InitialAccess
+  - CommandAndControl
+relevantTechniques:
+  - T1189
+  - T1071
+customDetails:
+  Collection: Collection
+  Confidence: Confidence
+  ValidUntil: ValidUntil
+  IndicatorId: IndicatorId
+  MatchedField: MatchedField
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 1h
+    matchingMethod: AllEntities
+eventGroupingSettings:
+  aggregationKind: AlertPerResult
+alertDetailsOverride:
+  alertDisplayNameFormat: 'SOCRadar Threat Feed match: {{Url}} ({{Collection}})'
+  alertDescriptionFormat: '**SOCRadar Threat Feeds indicator match**\n\nIndicator {{Url}} from collection {{Collection}} (confidence {{Confidence}}, valid until {{ValidUntil}}) was seen in the {{SourceTable}} table (matched on {{MatchedField}}).\n'
+  alertDynamicProperties:
+    - alertProperty: AlertLink
+      value: https://platform.socradar.com
+query: |
+  let ioc_lookBack = 14d;
+  let event_lookBack = 1h;
+  let indicators = ThreatIntelIndicators
+      | where SourceSystem == "SOCRadar Threat Feeds"
+      | where ObservableKey == "url:value"
+      | where isnotempty(ObservableValue)
+      | where TimeGenerated >= ago(ioc_lookBack)
+      | summarize LatestIndicatorTime = arg_max(TimeGenerated, *) by Id
+      | where IsActive == true and ValidUntil > now()
+      | extend Collection = coalesce(extract(@"^SOCRadar feed: (.+)$", 1, tostring(Data.description)), "SOCRadar feed")
+      | extend IndicatorUrl = tolower(ObservableValue)
+      | project IndicatorUrl, Collection, Confidence, ValidUntil, IndicatorId = Id;
+  _Im_WebSession(starttime = ago(event_lookBack))
+  | where isnotempty(Url)
+  | extend VisitedUrl = tolower(Url)
+  | join kind=inner indicators on $left.VisitedUrl == $right.IndicatorUrl
+  | project Url = VisitedUrl, MatchedField = "Url", Collection, Confidence, ValidUntil, IndicatorId, SourceTable = column_ifexists("Type", ""), DvcHostname, TimeGenerated
+entityMappings:
+  - entityType: URL
+    fieldMappings:
+      - identifier: Url
+        columnName: Url
+  - entityType: Host
+    fieldMappings:
+      - identifier: HostName
+        columnName: DvcHostname
+version: 1.0.0
+kind: Scheduled
