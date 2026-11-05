@@ -31,7 +31,7 @@ EXPECTED = {
     "Domain": ("_Im_Dns", 'ObservableKey == "domain-name:value"', ["DNS", "Host"]),
     "Url": ("_Im_WebSession", 'ObservableKey == "url:value"', ["URL", "Host"]),
     "Hash": ("_Im_FileEvent", 'ObservableKey startswith "file:hashes"', ["FileHash", "Host"]),
-    "Process": ("_Im_ProcessCreate", 'ObservableKey startswith "file:hashes"', ["FileHash", "Host"]),
+    "Process": ("_Im_ProcessEvent", 'ObservableKey startswith "file:hashes"', ["FileHash", "Host"]),
 }
 
 
@@ -115,6 +115,10 @@ for key, (parser, keycond, entity_types) in EXPECTED.items():
     check("| join kind=inner indicators on" in q, "%s: no join on indicators" % key)
     check(not re.search(r"\b(first|last)\s*=", q), "%s: first/last used as an alias (SYN0002)" % key)
     check("imFileEvent" not in q.replace("_Im_FileEvent", ""), "%s: workspace-deployed parser name used" % key)
+    if key == "Process":
+        # _Im_ProcessCreate has no native-table parser, so it never sees ASimProcessEventLogs; _Im_ProcessEvent does
+        check('| where EventType == "ProcessCreated"' in q, "%s: process events not limited to creation" % key)
+        check("_Im_ProcessCreate" not in q, "%s: _Im_ProcessCreate misses the native process table" % key)
     if key in ("Hash", "Process"):
         for algo in ("SHA256", "SHA1", "MD5"):
             check('"Algorithm", "%s"' % algo in q, "%s: algorithm %s not matched" % (key, algo))

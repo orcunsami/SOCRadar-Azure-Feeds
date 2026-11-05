@@ -185,7 +185,7 @@ Five scheduled analytics rules compare your own logs with the indicators this ap
 | SOCRadar Threat Feeds Threat Hunt Domain | `_Im_Dns` | DNS query |
 | SOCRadar Threat Feeds Threat Hunt URL | `_Im_WebSession` | URL |
 | SOCRadar Threat Feeds Threat Hunt File Hash | `_Im_FileEvent` | SHA-256, SHA-1 and MD5 of the file |
-| SOCRadar Threat Feeds Threat Hunt Process Hash | `_Im_ProcessCreate` | SHA-256, SHA-1 and MD5 of the process |
+| SOCRadar Threat Feeds Threat Hunt Process Hash | `_Im_ProcessEvent`, process creation only | SHA-256, SHA-1 and MD5 of the process |
 
 - The rules read the logs through the built-in ASIM parsers, which every Microsoft Sentinel workspace already has. They need your network, DNS, web, file or process events in the workspace (firewall, proxy, DNS, Defender for Endpoint and similar connectors, or the native `ASim*Logs` tables). With none of those, the rules are created and stay quiet.
 - Only indicators from this app count (`SourceSystem` is `SOCRadar Threat Feeds`), and only while they are active and not expired. SOCRadar TAXII indicators are not matched.

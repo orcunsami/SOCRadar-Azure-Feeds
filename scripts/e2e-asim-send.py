@@ -32,10 +32,14 @@ def token():
     return out.stdout.strip()
 
 
-def base(host):
+# The unifying parsers (_Im_Dns, _Im_ProcessCreate, ...) filter on EventType, so a made-up value is invisible to them.
+EVENT_TYPES = {"network": "EndpointNetworkSession", "dns": "Query", "web": "HTTPsession", "file": "FileCreated", "process": "ProcessCreated"}
+
+
+def base(host, kind):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {"TimeGenerated": now, "EventStartTime": now, "EventEndTime": now, "EventCount": 1,
-            "EventType": "e2e", "EventResult": "Success", "EventSeverity": "Informational",
+            "EventType": EVENT_TYPES[kind], "EventResult": "Success", "EventSeverity": "Informational",
             "EventProduct": "SOCRadar E2E", "EventVendor": "SOCRadar", "EventSchemaVersion": "0.1.0",
             "DvcHostname": host}
 
@@ -47,11 +51,11 @@ def events(ip, domain, url, hash_value):
     out = {k: [] for k in STREAMS}
     for host, i, d, u, h in (("e2e-host-hit", ip, domain, url, (sha256, sha1, md5)),
                              ("e2e-host-miss", "192.0.2.77", "no-such-indicator.example", "http://no-such-indicator.example/x", ("0" * 64, "0" * 40, "0" * 32))):
-        out["Custom-E2ENetwork"].append({**base(host), "SrcIpAddr": "10.0.0.5", "DstIpAddr": i})
-        out["Custom-E2EDns"].append({**base(host), "SrcIpAddr": "10.0.0.5", "DnsQuery": d})
-        out["Custom-E2EWeb"].append({**base(host), "SrcIpAddr": "10.0.0.5", "Url": u})
-        out["Custom-E2EFile"].append({**base(host), "TargetFilePath": "C:\\e2e\\sample.bin", "TargetFileSHA256": h[0], "TargetFileSHA1": h[1], "TargetFileMD5": h[2]})
-        out["Custom-E2EProcess"].append({**base(host), "TargetProcessName": "C:\\e2e\\sample.exe", "TargetProcessSHA256": h[0], "TargetProcessSHA1": h[1], "TargetProcessMD5": h[2]})
+        out["Custom-E2ENetwork"].append({**base(host, "network"), "SrcIpAddr": "10.0.0.5", "DstIpAddr": i})
+        out["Custom-E2EDns"].append({**base(host, "dns"), "SrcIpAddr": "10.0.0.5", "DnsQuery": d})
+        out["Custom-E2EWeb"].append({**base(host, "web"), "SrcIpAddr": "10.0.0.5", "Url": u})
+        out["Custom-E2EFile"].append({**base(host, "file"), "TargetFilePath": "C:\\e2e\\sample.bin", "TargetFileSHA256": h[0], "TargetFileSHA1": h[1], "TargetFileMD5": h[2]})
+        out["Custom-E2EProcess"].append({**base(host, "process"), "TargetProcessName": "C:\\e2e\\sample.exe", "TargetProcessSHA256": h[0], "TargetProcessSHA1": h[1], "TargetProcessMD5": h[2]})
     return out
 
 
