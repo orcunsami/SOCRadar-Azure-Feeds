@@ -750,7 +750,7 @@
                 "description": "Matches active SOCRadar Threat Feeds domain indicators against ASIM DNS queries.",
                 "severity": "[parameters('ThreatHuntRuleSeverity')]",
                 "enabled": true,
-                "query": "let ioc_lookBack = 14d;\nlet event_lookBack = 2h;\nlet alerted = SecurityAlert\n    | where TimeGenerated > ago(4h)\n    | where tostring(parse_json(ExtendedProperties)[\"Analytic Rule Name\"]) == \"SOCRadar Threat Feeds Threat Hunt Domain\"\n    | extend EventKey = tostring(parse_json(tostring(parse_json(ExtendedProperties)[\"Custom Details\"])).EventKey[0])\n    | distinct EventKey;\nlet indicators = ThreatIntelIndicators\n    | where SourceSystem == \"SOCRadar Threat Feeds\"\n    | where ObservableKey == \"domain-name:value\"\n    | where isnotempty(ObservableValue)\n    | where TimeGenerated >= ago(ioc_lookBack)\n    | summarize LatestIndicatorTime = arg_max(TimeGenerated, *) by Id\n    | where IsActive == true and ValidUntil > now()\n    | extend Collection = coalesce(extract(@\"^SOCRadar feed: (.+)$\", 1, tostring(Data.description)), \"SOCRadar feed\")\n    | extend IndicatorDomain = trim_end(@\"\\.\", tolower(ObservableValue))\n    | project IndicatorDomain, Collection, Confidence, ValidUntil, IndicatorId = Id;\n_Im_Dns(starttime = ago(event_lookBack))\n| where isnotempty(DnsQuery)\n| extend QueriedDomain = trim_end(@\"\\.\", tolower(DnsQuery))\n| join kind=inner indicators on $left.QueriedDomain == $right.IndicatorDomain\n| extend EventKey = strcat(IndicatorId, \"|\", DvcHostname, \"|\", tostring(TimeGenerated))\n| where EventKey !in (alerted)\n| project EventKey, Domain = QueriedDomain, MatchedField = \"DnsQuery\", Collection, Confidence, ValidUntil, IndicatorId, SourceTable = column_ifexists(\"Type\", \"\"), DvcHostname, SocradarLink = \"https://platform.socradar.com\", TimeGenerated\n",
+                "query": "let ioc_lookBack = 14d;\nlet event_lookBack = 2h;\nlet alerted = SecurityAlert\n    | where TimeGenerated > ago(4h)\n    | where tostring(parse_json(ExtendedProperties)[\"Analytic Rule Name\"]) == \"SOCRadar Threat Feeds Threat Hunt Domain\"\n    | extend EventKey = tostring(parse_json(tostring(parse_json(ExtendedProperties)[\"Custom Details\"])).EventKey[0])\n    | distinct EventKey;\nlet indicators = ThreatIntelIndicators\n    | where SourceSystem == \"SOCRadar Threat Feeds\"\n    | where ObservableKey == \"domain-name:value\"\n    | where isnotempty(ObservableValue)\n    | where TimeGenerated >= ago(ioc_lookBack)\n    | summarize LatestIndicatorTime = arg_max(TimeGenerated, *) by Id\n    | where IsActive == true and ValidUntil > now()\n    | extend Collection = coalesce(extract(@\"^SOCRadar feed: (.+)$\", 1, tostring(Data.description)), \"SOCRadar feed\")\n    | extend IndicatorDomain = trim_end(@\"\\.\", tolower(ObservableValue))\n    | project IndicatorDomain, Collection, Confidence, ValidUntil, IndicatorId = Id;\n_Im_Dns(starttime = ago(event_lookBack))\n| where isnotempty(DnsQuery)\n| extend QueriedDomain = trim_end(@\"\\.\", tolower(DnsQuery))\n| join kind=inner indicators on $left.QueriedDomain == $right.IndicatorDomain\n| extend EventKey = strcat(IndicatorId, \"|\", DvcHostname, \"|\", tostring(TimeGenerated))\n| where EventKey !in (alerted)\n| project EventKey, Domain = QueriedDomain, SourceIp = SrcIpAddr, MatchedField = \"DnsQuery\", Collection, Confidence, ValidUntil, IndicatorId, SourceTable = column_ifexists(\"Type\", \"\"), DvcHostname, SocradarLink = \"https://platform.socradar.com\", TimeGenerated\n",
                 "queryFrequency": "PT1H",
                 "queryPeriod": "P14D",
                 "triggerOperator": "GreaterThan",
@@ -797,6 +797,15 @@
                         ]
                     },
                     {
+                        "entityType": "IP",
+                        "fieldMappings": [
+                            {
+                                "identifier": "Address",
+                                "columnName": "SourceIp"
+                            }
+                        ]
+                    },
+                    {
                         "entityType": "Host",
                         "fieldMappings": [
                             {
@@ -812,9 +821,14 @@
                         "enabled": true,
                         "reopenClosedIncident": false,
                         "lookbackDuration": "PT2H",
-                        "matchingMethod": "AllEntities",
-                        "groupByEntities": [],
-                        "groupByAlertDetails": [],
+                        "matchingMethod": "Selected",
+                        "groupByEntities": [
+                            "IP",
+                            "Host"
+                        ],
+                        "groupByAlertDetails": [
+                            "DisplayName"
+                        ],
                         "groupByCustomDetails": []
                     }
                 }

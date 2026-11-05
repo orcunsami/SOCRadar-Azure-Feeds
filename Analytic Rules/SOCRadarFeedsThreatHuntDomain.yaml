@@ -30,12 +30,17 @@ incidentConfiguration:
     enabled: true
     reopenClosedIncident: false
     lookbackDuration: 2h
-    matchingMethod: AllEntities
+    matchingMethod: Selected
+    groupByEntities:
+      - IP
+      - Host
+    groupByAlertDetails:
+      - DisplayName
 eventGroupingSettings:
   aggregationKind: AlertPerResult
 alertDetailsOverride:
   alertDisplayNameFormat: 'SOCRadar Threat Feed match: {{Domain}} ({{Collection}})'
-  alertDescriptionFormat: '**SOCRadar Threat Feeds indicator match**\n\nIndicator {{Domain}} from collection {{Collection}} was seen in your logs (matched on {{MatchedField}}).\n'
+  alertDescriptionFormat: "**SOCRadar Threat Feeds indicator match**\n\nIndicator {{Domain}} from collection {{Collection}} was seen in your logs (matched on {{MatchedField}}).\n"
   alertDynamicProperties:
     - alertProperty: AlertLink
       value: SocradarLink
@@ -63,12 +68,16 @@ query: |
   | join kind=inner indicators on $left.QueriedDomain == $right.IndicatorDomain
   | extend EventKey = strcat(IndicatorId, "|", DvcHostname, "|", tostring(TimeGenerated))
   | where EventKey !in (alerted)
-  | project EventKey, Domain = QueriedDomain, MatchedField = "DnsQuery", Collection, Confidence, ValidUntil, IndicatorId, SourceTable = column_ifexists("Type", ""), DvcHostname, SocradarLink = "https://platform.socradar.com", TimeGenerated
+  | project EventKey, Domain = QueriedDomain, SourceIp = SrcIpAddr, MatchedField = "DnsQuery", Collection, Confidence, ValidUntil, IndicatorId, SourceTable = column_ifexists("Type", ""), DvcHostname, SocradarLink = "https://platform.socradar.com", TimeGenerated
 entityMappings:
   - entityType: DNS
     fieldMappings:
       - identifier: DomainName
         columnName: Domain
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: SourceIp
   - entityType: Host
     fieldMappings:
       - identifier: HostName

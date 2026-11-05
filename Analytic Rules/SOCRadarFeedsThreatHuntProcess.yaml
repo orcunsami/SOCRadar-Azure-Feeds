@@ -33,7 +33,7 @@ eventGroupingSettings:
   aggregationKind: AlertPerResult
 alertDetailsOverride:
   alertDisplayNameFormat: 'SOCRadar Threat Feed match: {{Hash}} ({{Collection}})'
-  alertDescriptionFormat: '**SOCRadar Threat Feeds indicator match**\n\nIndicator {{Hash}} from collection {{Collection}} was seen in your logs (matched on {{MatchedField}}).\n'
+  alertDescriptionFormat: "**SOCRadar Threat Feeds indicator match**\n\nIndicator {{Hash}} from collection {{Collection}} was seen in your logs (matched on {{MatchedField}}).\n"
   alertDynamicProperties:
     - alertProperty: AlertLink
       value: SocradarLink

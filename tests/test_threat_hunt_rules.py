@@ -28,11 +28,16 @@ def check(condition, message):
 # key: (parser, ObservableKey condition, entity types, algorithm-bearing)
 EXPECTED = {
     "IP": ("_Im_NetworkSession", 'ObservableKey == "ipv4-addr:value"', ["IP", "Host"]),
-    "Domain": ("_Im_Dns", 'ObservableKey == "domain-name:value"', ["DNS", "Host"]),
+    "Domain": ("_Im_Dns", 'ObservableKey == "domain-name:value"', ["DNS", "IP", "Host"]),
     "Url": ("_Im_WebSession", 'ObservableKey == "url:value"', ["URL", "Host"]),
     "Hash": ("_Im_FileEvent", 'ObservableKey startswith "file:hashes"', ["FileHash", "Host"]),
     "Process": ("_Im_ProcessEvent", 'ObservableKey startswith "file:hashes"', ["FileHash", "Host"]),
 }
+
+
+# grouping: DNS entities never match under AllEntities (every alert opened its own incident, measured), so Domain groups by IP, host and alert name
+GROUPING = {k: ("AllEntities", [], []) for k in EXPECTED}
+GROUPING["Domain"] = ("Selected", ["IP", "Host"], ["DisplayName"])
 
 
 def parse_yaml(text):
@@ -40,7 +45,7 @@ def parse_yaml(text):
     out["query"] = text.split("query: |\n", 1)[1].split("\nentityMappings:", 1)[0]
     out["query"] = "\n".join(l[2:] if l.startswith("  ") else l for l in out["query"].split("\n"))
     head = text.split("query: |\n", 1)[0]
-    for key in ("id", "name", "severity", "queryFrequency", "queryPeriod", "kind", "version"):
+    for key in ("id", "name", "severity", "queryFrequency", "queryPeriod", "kind", "version", "triggerOperator", "triggerThreshold"):
         m = re.search(r"^%s: (.+)$" % key, text, re.M)
         out[key] = m.group(1).strip() if m else None
     out["tactics"] = re.findall(r"^  - (\w+)$", text.split("tactics:\n", 1)[1].split("relevantTechniques:", 1)[0], re.M)
@@ -48,7 +53,19 @@ def parse_yaml(text):
     cd = text.split("customDetails:\n", 1)[1].split("incidentConfiguration:", 1)[0]
     out["customDetails"] = dict(re.findall(r"^  (\w+): (\w+)$", cd, re.M))
     out["display"] = re.search(r"alertDisplayNameFormat: '(.*)'", head).group(1)
-    out["descfmt"] = re.search(r"alertDescriptionFormat: '(.*)'", head).group(1).replace("\\n", "\n")
+    # double quoted, so the \\n escapes are real line breaks once parsed, exactly what the template carries
+    m = re.search(r'^  alertDescriptionFormat: ("(?:[^"\\]|\\.)*")$', head, re.M)
+    out["descfmt"] = json.loads(m.group(1)) if m else None
+    out["connectorId"] = re.search(r"connectorId: (\w+)", head).group(1)
+    out["dataTypes"] = re.findall(r"^      - (\w+)$", head.split("dataTypes:\n", 1)[1].split("queryFrequency:", 1)[0], re.M)
+    inc = head.split("incidentConfiguration:\n", 1)[1].split("eventGroupingSettings:", 1)[0]
+    out["createIncident"] = re.search(r"createIncident: (\w+)", inc).group(1)
+    out["grpEnabled"] = re.search(r"    enabled: (\w+)", inc).group(1)
+    out["reopen"] = re.search(r"reopenClosedIncident: (\w+)", inc).group(1)
+    out["lookback"] = re.search(r"lookbackDuration: (\w+)", inc).group(1)
+    out["matching"] = re.search(r"matchingMethod: (\w+)", inc).group(1)
+    out["groupByEntities"] = re.findall(r"^      - (\w+)$", inc.split("groupByEntities:\n", 1)[1].split("groupByAlertDetails:", 1)[0] if "groupByEntities:" in inc else "", re.M)
+    out["groupByAlertDetails"] = re.findall(r"^      - (\w+)$", inc.split("groupByAlertDetails:\n", 1)[1] if "groupByAlertDetails:" in inc else "", re.M)
     ent = text.split("entityMappings:\n", 1)[1]
     out["entities"] = [(m.group(1), re.findall(r"identifier: (\w+)\n\s+columnName: (\w+)", m.group(2)))
                        for m in re.finditer(r"- entityType: (\w+)\n    fieldMappings:\n((?:      .*\n?)+)", ent)]
@@ -150,7 +167,27 @@ for key, (parser, keycond, entity_types) in EXPECTED.items():
     check(y["tactics"] == p["tactics"] and y["techniques"] == p["techniques"], "%s: tactics or techniques differ" % key)
     check(y["tactics"] and y["techniques"], "%s: no tactics" % key)
     check(y["display"] == p["alertDetailsOverride"]["alertDisplayNameFormat"], "%s: display name format differs" % key)
+    check(y["descfmt"] is not None and "\n" in y["descfmt"] and "\\n" not in y["descfmt"], "%s: yaml description is not a double quoted string with real line breaks" % key)
     check(y["descfmt"] == p["alertDetailsOverride"]["alertDescriptionFormat"], "%s: description format differs" % key)
+
+    # trigger, severity and incident settings, yaml and template
+    check(y["severity"] == "Medium", "%s: yaml severity" % key)
+    check(y["connectorId"] == "ThreatIntelligenceUploadIndicatorsAPI" and y["dataTypes"] == ["ThreatIntelIndicators"], "%s: required data connector" % key)
+    check(y["triggerOperator"] == "gt" and p["triggerOperator"] == "GreaterThan", "%s: trigger operator" % key)
+    check(y["triggerThreshold"] == "0" and p["triggerThreshold"] == 0, "%s: trigger threshold" % key)
+    check(p.get("suppressionEnabled") is False, "%s: suppression must be off" % key)
+    g = p["incidentConfiguration"]["groupingConfiguration"]
+    method, by_entities, by_details = GROUPING[key]
+    check(y["createIncident"] == "true" and p["incidentConfiguration"]["createIncident"] is True, "%s: createIncident" % key)
+    check(y["grpEnabled"] == "true" and g["enabled"] is True, "%s: grouping off" % key)
+    check(y["reopen"] == "false" and g["reopenClosedIncident"] is False, "%s: closed incidents reopen" % key)
+    check(y["lookback"] == "2h" and g["lookbackDuration"] == "PT2H", "%s: grouping look back" % key)
+    check(y["matching"] == method and g["matchingMethod"] == method, "%s: matching method, want %s" % (key, method))
+    check(y["groupByEntities"] == by_entities and g["groupByEntities"] == by_entities, "%s: group by entities" % key)
+    check(y["groupByAlertDetails"] == by_details and g["groupByAlertDetails"] == by_details, "%s: group by alert details" % key)
+    check(g["groupByCustomDetails"] == [], "%s: group by custom details" % key)
+    check(set(by_entities) <= {e[0] for e in y["entities"]}, "%s: groups by an entity the rule does not map" % key)
+    check(not (method == "AllEntities" and "DNS" in [e[0] for e in y["entities"]]), "%s: AllEntities with a DNS entity never groups" % key)
     check(y["customDetails"] == p["customDetails"], "%s: custom details differ" % key)
     check(y["name"] == p["displayName"], "%s: display name differs" % key)
     check(y["aggregation"] == "AlertPerResult" and p["eventGroupingSettings"]["aggregationKind"] == "AlertPerResult", "%s: not one alert per result" % key)
