@@ -52,6 +52,7 @@ def parse_yaml(text):
     ent = text.split("entityMappings:\n", 1)[1]
     out["entities"] = [(m.group(1), re.findall(r"identifier: (\w+)\n\s+columnName: (\w+)", m.group(2)))
                        for m in re.finditer(r"- entityType: (\w+)\n    fieldMappings:\n((?:      .*\n?)+)", ent)]
+    out["link"] = re.search(r"alertProperty: AlertLink\n\s+value: (\w+)", head).group(1)
     out["aggregation"] = re.search(r"aggregationKind: (\w+)", head).group(1)
     return out
 
@@ -109,7 +110,7 @@ for key, (parser, keycond, entity_types) in EXPECTED.items():
     check("| where IsActive == true and ValidUntil > now()" in q, "%s: expired or inactive indicators allowed" % key)
     check("summarize LatestIndicatorTime = arg_max(TimeGenerated, *) by Id" in q, "%s: latest version per indicator not taken" % key)
     check("let ioc_lookBack = 14d;" in q and "TimeGenerated >= ago(ioc_lookBack)" in q, "%s: indicator look back" % key)
-    check("let event_lookBack = 1h;" in q and "%s(starttime = ago(event_lookBack))" % parser in q,
+    check("let event_lookBack = 2h;" in q and "%s(starttime = ago(event_lookBack))" % parser in q,
           "%s: ASIM parser %s with event window missing" % (key, parser))
     check("| join kind=inner indicators on" in q, "%s: no join on indicators" % key)
     check(not re.search(r"\b(first|last)\s*=", q), "%s: first/last used as an alias (SYN0002)" % key)
@@ -126,12 +127,17 @@ for key, (parser, keycond, entity_types) in EXPECTED.items():
             check(col in cols, "%s: entity %s.%s maps column %s the query does not return" % (key, etype, ident, col))
     for k, col in y["customDetails"].items():
         check(col in cols, "%s: custom detail %s uses column %s the query does not return" % (key, k, col))
+    # the AlertLink value is a column name, not a literal address (Sentinel: "The given column ... does not exist")
+    check(y["link"] in cols, "%s: AlertLink uses column %s the query does not return" % (key, y["link"]))
+    check(p["alertDetailsOverride"]["alertDynamicProperties"] == [{"alertProperty": "AlertLink", "value": y["link"]}], "%s: AlertLink differs in the template" % key)
     check(len(y["customDetails"]) >= 5, "%s: custom details thinned out" % key)
     for ph in re.findall(r"\{\{(\w+)\}\}", y["display"] + y["descfmt"]):
         check(ph in cols, "%s: alert text uses {{%s}} the query does not return" % (key, ph))
 
     # yaml and template agree on the settings
-    check(y["queryFrequency"] == "15m" and p["queryFrequency"] == "PT15M", "%s: frequency" % key)
+    check(y["queryFrequency"] == "1h" and p["queryFrequency"] == "PT1H", "%s: frequency" % key)
+    # Sentinel refuses a period of 2 days or more with a frequency under 1 hour, and more than 3 placeholders in the description
+    check(len(set(re.findall(r"\{\{(\w+)\}\}", y["descfmt"]))) <= 3, "%s: description has more than 3 parameters" % key)
     check(y["queryPeriod"] == "14d" and p["queryPeriod"] == "P14D", "%s: period must be the 14d maximum" % key)
     check(y["tactics"] == p["tactics"] and y["techniques"] == p["techniques"], "%s: tactics or techniques differ" % key)
     check(y["tactics"] and y["techniques"], "%s: no tactics" % key)

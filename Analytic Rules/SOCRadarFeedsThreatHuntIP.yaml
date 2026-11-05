@@ -7,7 +7,7 @@ requiredDataConnectors:
   - connectorId: ThreatIntelligenceUploadIndicatorsAPI
     dataTypes:
       - ThreatIntelIndicators
-queryFrequency: 15m
+queryFrequency: 1h
 queryPeriod: 14d
 triggerOperator: gt
 triggerThreshold: 0
@@ -28,19 +28,19 @@ incidentConfiguration:
   groupingConfiguration:
     enabled: true
     reopenClosedIncident: false
-    lookbackDuration: 1h
+    lookbackDuration: 2h
     matchingMethod: AllEntities
 eventGroupingSettings:
   aggregationKind: AlertPerResult
 alertDetailsOverride:
   alertDisplayNameFormat: 'SOCRadar Threat Feed match: {{NetworkIP}} ({{Collection}})'
-  alertDescriptionFormat: '**SOCRadar Threat Feeds indicator match**\n\nIndicator {{NetworkIP}} from collection {{Collection}} (confidence {{Confidence}}, valid until {{ValidUntil}}) was seen in the {{SourceTable}} table (matched on {{MatchedField}}).\n'
+  alertDescriptionFormat: '**SOCRadar Threat Feeds indicator match**\n\nIndicator {{NetworkIP}} from collection {{Collection}} was seen in your logs (matched on {{MatchedField}}).\n'
   alertDynamicProperties:
     - alertProperty: AlertLink
-      value: https://platform.socradar.com
+      value: SocradarLink
 query: |
   let ioc_lookBack = 14d;
-  let event_lookBack = 1h;
+  let event_lookBack = 2h;
   let indicators = ThreatIntelIndicators
       | where SourceSystem == "SOCRadar Threat Feeds"
       | where ObservableKey == "ipv4-addr:value"
@@ -60,7 +60,7 @@ query: |
       | join kind=inner indicators on $left.SrcIpAddr == $right.IndicatorIp
       | extend MatchedField = "SrcIpAddr";
   union dst, src
-  | project NetworkIP = IndicatorIp, MatchedField, Collection, Confidence, ValidUntil, IndicatorId, SourceTable = column_ifexists("Type", ""), DvcHostname, TimeGenerated
+  | project NetworkIP = IndicatorIp, MatchedField, Collection, Confidence, ValidUntil, IndicatorId, SourceTable = column_ifexists("Type", ""), DvcHostname, SocradarLink = "https://platform.socradar.com", TimeGenerated
 entityMappings:
   - entityType: IP
     fieldMappings:
