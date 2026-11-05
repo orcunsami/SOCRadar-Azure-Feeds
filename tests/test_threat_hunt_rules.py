@@ -112,6 +112,10 @@ for key, (parser, keycond, entity_types) in EXPECTED.items():
     check("let ioc_lookBack = 14d;" in q and "TimeGenerated >= ago(ioc_lookBack)" in q, "%s: indicator look back" % key)
     check("let event_lookBack = 2h;" in q and "%s(starttime = ago(event_lookBack))" % parser in q,
           "%s: ASIM parser %s with event window missing" % (key, parser))
+    # an event that already raised an alert must not raise it again on the next run (the event window is wider than the frequency)
+    check("| where EventKey !in (alerted)" in q, "%s: events already alerted are not skipped" % key)
+    check('["Analytic Rule Name"]) == "%s"' % y["name"] in q, "%s: dedupe reads another rule's alerts" % key)
+    check("EventKey" in y["customDetails"], "%s: EventKey is not a custom detail, so alerts cannot be told apart" % key)
     check("| join kind=inner indicators on" in q, "%s: no join on indicators" % key)
     check(not re.search(r"\b(first|last)\s*=", q), "%s: first/last used as an alias (SYN0002)" % key)
     check("imFileEvent" not in q.replace("_Im_FileEvent", ""), "%s: workspace-deployed parser name used" % key)

@@ -25,6 +25,7 @@ customDetails:
   ValidUntil: ValidUntil
   IndicatorId: IndicatorId
   MatchedField: MatchedField
+  EventKey: EventKey
 incidentConfiguration:
   createIncident: true
   groupingConfiguration:
@@ -43,6 +44,11 @@ alertDetailsOverride:
 query: |
   let ioc_lookBack = 14d;
   let event_lookBack = 2h;
+  let alerted = SecurityAlert
+      | where TimeGenerated > ago(4h)
+      | where tostring(parse_json(ExtendedProperties)["Analytic Rule Name"]) == "SOCRadar Threat Feeds Threat Hunt File Hash"
+      | extend EventKey = tostring(parse_json(tostring(parse_json(ExtendedProperties)["Custom Details"])).EventKey[0])
+      | distinct EventKey;
   let indicators = ThreatIntelIndicators
       | where SourceSystem == "SOCRadar Threat Feeds"
       | where ObservableKey startswith "file:hashes"
@@ -62,7 +68,9 @@ query: |
   | extend HashType = tostring(HashCandidates.Algorithm), EventHash = tostring(HashCandidates.Hash)
   | where isnotempty(EventHash)
   | join kind=inner indicators on $left.EventHash == $right.IndicatorHash
-  | project Hash = EventHash, HashType, MatchedField = strcat("TargetFile", HashType), Collection, Confidence, ValidUntil, IndicatorId, SourceTable = column_ifexists("Type", ""), DvcHostname, SocradarLink = "https://platform.socradar.com", TimeGenerated
+  | extend EventKey = strcat(IndicatorId, "|", DvcHostname, "|", tostring(TimeGenerated))
+  | where EventKey !in (alerted)
+  | project EventKey, Hash = EventHash, HashType, MatchedField = strcat("TargetFile", HashType), Collection, Confidence, ValidUntil, IndicatorId, SourceTable = column_ifexists("Type", ""), DvcHostname, SocradarLink = "https://platform.socradar.com", TimeGenerated
 entityMappings:
   - entityType: FileHash
     fieldMappings:
