@@ -38,9 +38,9 @@ MUTATIONS = [
             pass''',
   "tests/test_upload_failure_keeps_checkpoint.py"),
  ("failed counted as skipped", "FunctionApp/feeds_processor.py",
-  '''        return 0, 0, len(indicators)
+  '''        return 0, 0, len(indicators), set()
 
-    # ----''', '''        return 0, len(indicators), 0
+    # ----''', '''        return 0, len(indicators), 0, set()
 
     # ----''',
   "tests/test_upload_failure_keeps_checkpoint.py"),
@@ -721,6 +721,60 @@ else''',
   """"severity": "[parameters('ThreatHuntRuleSeverity')]\"""", '"severity": "Low"', "tests/test_threat_hunt_rules.py"),
  ("template hunt rule hash filter loosened", "azuredeploy.json",
   r"""ObservableKey startswith \"file:hashes\"""", r"""ObservableKey startswith \"file:\"""", "tests/test_threat_hunt_rules.py"),
+ ("stix product endpoint reverted", "FunctionApp/feeds_processor.py",
+  '''SENTINEL_UPLOAD_URL = "https://api.ti.sentinel.azure.com/workspaces/{workspace_id}/threat-intelligence-stix-objects:upload"''',
+  '''SENTINEL_UPLOAD_URL = "https://sentinelus.azure-api.net/workspaces/{workspace_id}/threatintelligenceindicators:upload"''',
+  "tests/test_stix_upload.py"),
+ ("stix API version reverted", "FunctionApp/feeds_processor.py",
+  '''url = SENTINEL_UPLOAD_URL.format(workspace_id=self.workspace_id) + "?api-version=2024-02-01-preview"''',
+  '''url = SENTINEL_UPLOAD_URL.format(workspace_id=self.workspace_id) + "?api-version=2022-07-01"''',
+  "tests/test_stix_upload.py"),
+ ("stix legacy envelope key", "FunctionApp/feeds_processor.py",
+  '''body = {"sourcesystem": "SOCRadar Threat Feeds", "stixobjects": indicators}''',
+  '''body = {"sourcesystem": "SOCRadar Threat Feeds", "indicators": indicators}''',
+  "tests/test_stix_upload.py"),
+ ("stix source impersonates Sentinel", "FunctionApp/feeds_processor.py",
+  '''body = {"sourcesystem": "SOCRadar Threat Feeds", "stixobjects": indicators}''',
+  '''body = {"sourcesystem": "Microsoft Sentinel", "stixobjects": indicators}''',
+  "tests/test_stix_upload.py"),
+ ("stix accepts 101 objects", "FunctionApp/feeds_processor.py",
+  '''        if len(indicators) > 100:''', '''        if len(indicators) > 101:''',
+  "tests/test_stix_upload.py"),
+ ("stix rejections ignored", "FunctionApp/feeds_processor.py",
+  '''                        rejected.add(index)''', '''                        pass''',
+  "tests/test_stix_upload.py"),
+ ("stix rejection index shifted", "FunctionApp/feeds_processor.py",
+  '''                        rejected.add(index)''',
+  '''                        rejected.add((index + 1) % len(indicators))''',
+  "tests/test_stix_upload.py"),
+ ("stix boolean index accepted", "FunctionApp/feeds_processor.py",
+  '''                        if type(index) is not int or not 0 <= index < len(indicators):''',
+  '''                        if type(index) is not int and not 0 <= index < len(indicators):''',
+  "tests/test_stix_upload.py"),
+ ("stix malformed 200 accepted", "FunctionApp/feeds_processor.py",
+  '''                    if not isinstance(result, dict) or not isinstance(result.get("errors"), list):
+                        raise ValueError("Invalid upload response")
+                    errors = result["errors"]''',
+  '''                    if not isinstance(result, dict) or not isinstance(result.get("errors", []), list):
+                        raise ValueError("Invalid upload response")
+                    errors = result.get("errors", [])''',
+  "tests/test_stix_upload.py"),
+ ("stix failed batch advances checkpoint", "FunctionApp/feeds_processor.py",
+  '''        if result["failed"]:
+            self.save_checkpoint(cid, name, pinned, len(items), result["created"], result["failed"])
+        elif not result["feeds_table_ok"]:''',
+  '''        if result["failed"]:
+            self.save_checkpoint(cid, name, advance_to, len(items), result["created"], result["failed"])
+        elif not result["feeds_table_ok"]:''',
+  "tests/test_stix_upload.py"),
+ ("stix rejected log written again", "FunctionApp/feeds_processor.py",
+  '''            delivered_logs.extend(log for index, log in enumerate(feed_logs[i:i + BATCH_SIZE])
+                                  if log and index not in rejected)''',
+  '''            delivered_logs.extend(log for index, log in enumerate(feed_logs[i:i + BATCH_SIZE])
+                                  if log)''',
+  "tests/test_stix_upload.py"),
+ ("stix retry cap widened", "FunctionApp/feeds_processor.py",
+  '''MAX_ATTEMPTS = 3''', '''MAX_ATTEMPTS = 10''', "tests/test_stix_upload.py"),
 ]
 
 

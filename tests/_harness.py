@@ -14,6 +14,7 @@ import types
 from datetime import datetime, timezone
 
 logging.disable(logging.CRITICAL)
+_UNSET = object()
 
 # `requests` is a deployment dependency, not a test dependency: every call it
 # would make is stubbed below, so a placeholder module keeps the import working
@@ -33,11 +34,12 @@ def fixture_items():
 
 
 class Response:
-    def __init__(self, status_code, payload=None, headers=None, text=None):
+    def __init__(self, status_code, payload=_UNSET, headers=None, text=None):
         self.status_code = status_code
-        self._payload = payload if payload is not None else {}
+        implicit_empty_200 = payload is _UNSET and status_code == 200
+        self._payload = {} if payload is _UNSET else payload
         self.headers = headers or {}
-        self.text = text if text is not None else "body"
+        self.text = text if text is not None else ("" if implicit_empty_200 else "body")
 
     def json(self):
         if isinstance(self._payload, Exception):
@@ -56,6 +58,7 @@ class FakeRequests:
         self.get_calls = []
         self.get_timeouts = []
         self.post_calls = []
+        self.post_bodies = []
 
     def _next(self, queue, calls, record):
         calls.append(record)
@@ -74,7 +77,8 @@ class FakeRequests:
 
     def post(self, url, **kwargs):
         body = kwargs.get("json") or {}
-        return self._next(self.post_responses, self.post_calls, (url, list(body.get("indicators", []))))
+        self.post_bodies.append(body)
+        return self._next(self.post_responses, self.post_calls, (url, list(body.get("stixobjects", []))))
 
 
 class FakeTable:

@@ -28,7 +28,7 @@ RECOMMENDED_COLLECTIONS = {
 }
 
 SOCRADAR_FEED_URL = "https://platform.socradar.com/api/threat/intelligence/feed_list"
-SENTINEL_UPLOAD_URL = "https://sentinelus.azure-api.net/workspaces/{workspace_id}/threatintelligenceindicators:upload"
+SENTINEL_UPLOAD_URL = "https://api.ti.sentinel.azure.com/workspaces/{workspace_id}/threat-intelligence-stix-objects:upload"
 BATCH_SIZE = 100
 
 # A 429 or 5xx means the request never landed. Retrying it is the difference
@@ -311,18 +311,21 @@ class FeedsProcessor:
 
     # -------------------------------------------------------------- upload
 
-    def upload_batch(self, indicators: List[dict]) -> Tuple[int, int, int]:
+    def upload_batch(self, indicators: List[dict]) -> Tuple[int, int, int, set]:
         """Upload one batch to Microsoft Sentinel TI.
 
-        Returns (created, skipped, failed). The last two are not the same
+        Returns (created, skipped, failed, rejected). The two counts are not the same
         thing. Skipped indicators came back inside a successful response:
         Sentinel read them and rejected them, so sending them again changes
         nothing. Failed indicators never reached Sentinel at all, and the
         caller must keep the checkpoint where it is so the next run sends
-        them again.
+        them again. Rejected batch positions must not enter the feeds table.
         """
-        url = SENTINEL_UPLOAD_URL.format(workspace_id=self.workspace_id) + "?api-version=2022-07-01"
-        body = {"sourcesystem": "SOCRadar Threat Feeds", "indicators": indicators}
+        if len(indicators) > 100:
+            logger.error("Upload batch exceeds the 100-object limit")
+            return 0, 0, len(indicators), set()
+        url = SENTINEL_UPLOAD_URL.format(workspace_id=self.workspace_id) + "?api-version=2024-02-01-preview"
+        body = {"sourcesystem": "SOCRadar Threat Feeds", "stixobjects": indicators}
         resp = None
         for attempt in range(1, MAX_ATTEMPTS + 1):
             headers = {
@@ -333,22 +336,34 @@ class FeedsProcessor:
                 resp = requests.post(url, headers=headers, json=body, timeout=60)
             except Exception as e:
                 logger.error("Upload request failed: %s", redact(e))
-                return 0, 0, len(indicators)
+                return 0, 0, len(indicators), set()
             if resp.status_code == 200:
-                result = resp.json() if resp.text else {}
-                errors = result.get("errors", []) if isinstance(result, dict) else []
-                skipped = len(errors)
+                try:
+                    result = resp.json() if resp.text.strip() else {"errors": []}
+                    if not isinstance(result, dict) or not isinstance(result.get("errors"), list):
+                        raise ValueError("Invalid upload response")
+                    errors = result["errors"]
+                    rejected = set()
+                    for error in errors:
+                        index = error.get("recordIndex") if isinstance(error, dict) else None
+                        if type(index) is not int or not 0 <= index < len(indicators):
+                            raise ValueError("Invalid rejection index")
+                        rejected.add(index)
+                except (ValueError, TypeError):
+                    logger.error("Upload returned an unreadable validation response; holding the checkpoint")
+                    return 0, 0, len(indicators), set()
+                skipped = len(rejected)
                 created = len(indicators) - skipped
                 if errors:
                     logger.warning("Upload batch had %d rejected indicator(s): %s",
                                    skipped, str(errors[:3])[:500])
-                return created, skipped, 0
+                return created, skipped, 0, rejected
             if not self._sleep_before_retry(resp, attempt, "Microsoft Sentinel upload"):
                 break
 
         logger.error("Upload failed after %d attempt(s): %d %s",
                      attempt, resp.status_code, resp.text[:500])
-        return 0, 0, len(indicators)
+        return 0, 0, len(indicators), set()
 
     # ----------------------------------------------------------------- run
 
@@ -424,7 +439,7 @@ class FeedsProcessor:
                              name, batch_num, total_batches, len(stix_indicators) - i)
                 break
             logger.info("Step 2.7: [%s] Uploading batch %d/%d (%d indicators)", name, batch_num, total_batches, len(batch))
-            created, skipped, failed = self.upload_batch(batch)
+            created, skipped, failed, rejected = self.upload_batch(batch)
             result["created"] += created
             result["skipped"] += skipped
             if failed:
@@ -434,7 +449,8 @@ class FeedsProcessor:
                 logger.error("Step 2.7: [%s] Batch %d/%d never reached Microsoft Sentinel; holding the checkpoint at %s",
                              name, batch_num, total_batches, format_checkpoint(pinned))
                 break
-            delivered_logs.extend(log for log in feed_logs[i:i + BATCH_SIZE] if log)
+            delivered_logs.extend(log for index, log in enumerate(feed_logs[i:i + BATCH_SIZE])
+                                  if log and index not in rejected)
             logger.info("Step 2.7: [%s] Batch %d result: %d created, %d skipped", name, batch_num, created, skipped)
 
         if self.enable_feeds_table and delivered_logs and self.dcr_logger:
