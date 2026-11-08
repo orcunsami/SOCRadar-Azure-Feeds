@@ -32,7 +32,7 @@ def upload(responses, batch=None, **kwargs):
 
 
 # The endpoint, API version, source system and envelope must change together.
-(created, skipped, failed, rejected), stub, _, _ = upload([Response(200, {"errors": []})])
+(created, skipped, failed, rejected), stub, _, processor = upload([Response(200, {"errors": []})])
 check((created, skipped, failed, rejected) == (3, 0, 0, set()), "clean upload miscounted")
 check(len(stub.post_calls) == 1, "clean upload did not post exactly once")
 url = stub.post_calls[0][0] if stub.post_calls else ""
@@ -43,6 +43,9 @@ check(set(body) == {"sourcesystem", "stixobjects"}, "wrong upload envelope: %r" 
 check(body.get("sourcesystem") == "SOCRadar Threat Feeds" and body.get("sourcesystem") != "Microsoft Sentinel",
       "source system drifted: %r" % body.get("sourcesystem"))
 check(body.get("stixobjects") == records(), "STIX records were not sent intact: %r" % body)
+check(processor.credential.scopes == [("https://management.azure.com/.default",)],
+      "upload requested the wrong token scope: %r" % processor.credential.scopes)
+check(stub.post_timeouts == [60], "upload timeout changed: %r" % stub.post_timeouts)
 
 # The service documents no body and whitespace as a successful all-created
 # response. Any non-empty body must instead be parseable and validated.
@@ -101,6 +104,9 @@ check(result == (0, 0, 101, set()) and not stub.post_calls,
 
 # Retry policy is bounded at three attempts and must not sleep into the run
 # budget. The direct method shares this policy with the checkpointed run.
+result, stub, sleeps, _ = upload([Response(400)])
+check(result == (0, 0, 3, set()) and len(stub.post_calls) == 1 and sleeps == [],
+      "400 must fail without retry: result=%r calls=%d sleeps=%r" % (result, len(stub.post_calls), sleeps))
 result, stub, sleeps, _ = upload([Response(503, headers={"Retry-After": "0"})])
 check(result == (0, 0, 3, set()) and len(stub.post_calls) == 3 and sleeps == [0.0, 0.0],
       "retry cap changed: result=%r calls=%d sleeps=%r" % (result, len(stub.post_calls), sleeps))

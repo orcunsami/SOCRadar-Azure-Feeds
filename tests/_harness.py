@@ -59,6 +59,7 @@ class FakeRequests:
         self.get_timeouts = []
         self.post_calls = []
         self.post_bodies = []
+        self.post_timeouts = []
 
     def _next(self, queue, calls, record):
         calls.append(record)
@@ -76,6 +77,7 @@ class FakeRequests:
         return self._next(self.get_responses, self.get_calls, (url, kwargs.get("params")))
 
     def post(self, url, **kwargs):
+        self.post_timeouts.append(kwargs.get("timeout"))
         body = kwargs.get("json") or {}
         self.post_bodies.append(body)
         return self._next(self.post_responses, self.post_calls, (url, list(body.get("stixobjects", []))))
@@ -103,8 +105,10 @@ class FakeTable:
 class FakeCredential:
     def __init__(self):
         self.calls = 0
+        self.scopes = []
 
     def get_token(self, *_scopes):
+        self.scopes.append(_scopes)
         self.calls += 1
         return types.SimpleNamespace(token="token-%d" % self.calls, expires_on=9999999999)
 
