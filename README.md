@@ -2,6 +2,8 @@
 
 Ingests threat intelligence indicators from SOCRadar feeds into Microsoft Sentinel TI.
 
+This integration supports Azure public cloud. The deployment template resolves Azure endpoints from the deployment environment; the Python token scope remains scoped to Azure public cloud.
+
 ## Deployment
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Azure-Feeds%2Fmaster%2Fazuredeploy.json)
