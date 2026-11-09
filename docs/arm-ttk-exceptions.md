@@ -19,42 +19,41 @@ release package are unchanged. ARM-TTK runs all tests; no test is skipped.
   empty precheck resource list remain. Grouping, lookback and reopen behavior
   are unchanged.
 
-## Retained API-age findings
+## API-age findings closed by task 0116
 
-These are explicit compatibility exceptions, not claims that age checks pass or
-that another approved solution justifies the findings. Azure provider metadata
-read on 9 November 2026 still advertises the versions below. The existing
-template and package were exercised together; this change keeps that API
-contract while fixing endpoints and test coverage. Adopting newer resource
-contracts requires a separate comparison of existing-workspace preservation,
-redeploy and service defaults. No API is being declared permanently frozen.
+The former API-age exceptions are closed. Resource declarations and matching
+reference/listKeys calls now use supported newer API versions. No ARM-TTK
+checks are excluded. The full template tree is tested by `tests/run_all.py`;
+CI installs a pinned ARM-TTK checkout before running it.
 
-| ARM-TTK finding | Version / surface | Specific reason for retaining it |
-|---|---|---|
-| apiVersions Should Be Recent | deployments 2021-04-01 | Empty inner-scope workspace precheck; preserve reference evaluation and failure-before-resource-creation semantics. |
-| apiVersions Should Be Recent | workspaces 2023-09-01 | Existing-workspace conditional PUT intentionally avoids SKU/retention/cap writes. Avoid changing that resource contract in an endpoint correction. |
-| apiVersions Should Be Recent | storageAccounts, tableServices, tables 2023-05-01 | Keep the checkpoint storage and shared-key connection contract aligned with the running package. |
-| apiVersions Should Be Recent | dataCollectionEndpoints/dataCollectionRules 2023-03-11 | Preserve the current custom stream/table transform and endpoint binding; no new collection feature is needed. |
-| apiVersions Should Be Recent | workspaces/tables 2022-10-01 | Preserve the deployed column/type schema and existing table lifecycle. |
-| apiVersions Should Be Recent | userAssignedIdentities 2023-01-31 | Preserve the UAMI client/principal reference contract; no identity or federation migration is part of this change. |
-| apiVersions Should Be Recent | serverfarms/sites 2023-12-01 | Preserve Consumption/Linux create and app-settings behavior, especially the initial package pointer and subsequent blob staging. |
-| apiVersions Should Be Recent In Reference Functions | storage listKeys 2023-05-01 | Same supported contract as storage creation; only the connection-string DNS suffix changes. |
-| apiVersions Should Be Recent In Reference Functions | UAMI reference 2023-01-31 | Same contract as UAMI creation; the client/principal fields and identity selection are unchanged. |
-| apiVersions Should Be Recent In Reference Functions | DCE/DCR references 2023-03-11 | Same contract as collection-resource creation; ingestion endpoint and immutable-id fields remain aligned. |
+| Resource surface | API version |
+|---|---|
+| Nested deployments | 2025-03-01 |
+| Workspaces and custom tables | 2025-02-01 |
+| Storage account, table service and tables | 2025-01-01 |
+| Data collection endpoints and rules | 2024-03-11 |
+| User-assigned identity | 2024-11-30 |
+| App Service plan and Function App | 2025-03-01 |
+| Workbooks | 2023-06-01 |
+| Deployment scripts | 2023-08-01 |
 
-Owner: SOCRadar Feeds maintainer / release owner. Revisit on the next API-contract
-upgrade, a provider deprecation notice, or a failing create/redeploy. A successful
-new greenfield validates this branch's public-cloud create/import path only;
-it does not establish every existing-workspace or sovereign-cloud scenario.
+Resource names, IDs, role GUID inputs, stream schemas, application settings,
+package staging script and runtime code are unchanged. Existing-workspace
+creation remains conditional and does not write SKU, retention or cap fields.
+New greenfield and identical-parameter redeploy proof is required before release.
+
+Some providers have no recent stable version. ARM-TTK accepts its cached latest
+stable API (including OperationsManagement solutions 2015-11-01-preview,
+Insights components 2020-02-02 and Authorization roleAssignments 2022-04-01).
+These are tool-native passes, with no template skip metadata.
 
 ## Sources and evidence
 
 - [Environment endpoints](https://learn.microsoft.com/en-us/azure/azure-resource-manager/templates/template-functions-deployment#environment)
 - [GroupingConfiguration fields](https://learn.microsoft.com/en-us/azure/templates/microsoft.securityinsights/2024-03-01/alertrules#groupingconfiguration)
-- [Storage 2023-05-01 schema](https://learn.microsoft.com/en-us/azure/templates/microsoft.storage/2023-05-01/storageaccounts)
-- [Data collection rules 2023-03-11 schema](https://learn.microsoft.com/en-us/azure/templates/microsoft.insights/2023-03-11/datacollectionrules)
+- [Storage 2025-01-01 schema](https://learn.microsoft.com/en-us/azure/templates/microsoft.storage/2025-01-01/storageaccounts)
+- [Data collection rules 2024-03-11 schema](https://learn.microsoft.com/en-us/azure/templates/microsoft.insights/2024-03-11/datacollectionrules)
 
-The release handoff records provider API support, the complete before/after
-ARM-TTK failure lists, exact branch/template SHA, CI and mutant results, and the
-independent greenfield/import and cleanup evidence. Raw age failures remain
-visible there; an exception document does not turn them into absolute PASS.
+Task 0116 records provider support, exact baseline/final results, semantic diff,
+CI and mutation evidence. Static PASS does not establish live create/redeploy,
+existing-workspace preservation or sovereign-cloud compatibility.

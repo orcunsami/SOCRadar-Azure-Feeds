@@ -2,7 +2,7 @@ name: Checks
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, armttk0-0116]
   pull_request:
   workflow_dispatch:
 
@@ -28,6 +28,12 @@ jobs:
             exit 1
           fi
         shell: bash
+
+      - name: Install pinned ARM-TTK
+        run: |
+          git clone https://github.com/Azure/arm-ttk.git "$RUNNER_TEMP/arm-ttk"
+          git -C "$RUNNER_TEMP/arm-ttk" checkout 0ec9a41a4503e970a0ec8efb0cd08415cc172175
+          echo "ARM_TTK_MODULE=$RUNNER_TEMP/arm-ttk/arm-ttk/arm-ttk.psd1" >> "$GITHUB_ENV"
 
       - name: Template and package checks
         run: python3 tests/run_all.py

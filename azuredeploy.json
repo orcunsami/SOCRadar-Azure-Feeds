@@ -158,7 +158,7 @@
             "comments": "Resolves the existing workspace before any resource is created. A condition:false resource counts as a satisfied dependency in ARM, so depending on the workspace resource itself does not stop the deployment when WorkspaceName does not exist and DeployNewWorkspace is false -- it would create the storage account, the user-assigned identity and the App Service Plan and only then fail. This checks that the workspace EXISTS and nothing else.",
             "condition": "[not(parameters('DeployNewWorkspace'))]",
             "type": "Microsoft.Resources/deployments",
-            "apiVersion": "2021-04-01",
+            "apiVersion": "2025-03-01",
             "name": "precheck-workspace-exists",
             "properties": {
                 "mode": "Incremental",
@@ -182,7 +182,7 @@
                     "outputs": {
                         "workspaceId": {
                             "type": "string",
-                            "value": "[reference(parameters('WorkspaceResourceId'), '2023-09-01', 'Full').properties.customerId]"
+                            "value": "[reference(parameters('WorkspaceResourceId'), '2025-02-01', 'Full').properties.customerId]"
                         }
                     }
                 }
@@ -190,7 +190,7 @@
         },
         {
             "type": "Microsoft.OperationalInsights/workspaces",
-            "apiVersion": "2023-09-01",
+            "apiVersion": "2025-02-01",
             "name": "[parameters('WorkspaceName')]",
             "location": "[parameters('WorkspaceLocation')]",
             "condition": "[parameters('DeployNewWorkspace')]",
@@ -228,7 +228,7 @@
         {
             "dependsOn": ["[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "type": "Microsoft.Storage/storageAccounts",
-            "apiVersion": "2023-05-01",
+            "apiVersion": "2025-01-01",
             "name": "[variables('storageAccountName')]",
             "location": "[parameters('location')]",
             "sku": { "name": "Standard_LRS" },
@@ -241,7 +241,7 @@
         },
         {
             "type": "Microsoft.Storage/storageAccounts/tableServices",
-            "apiVersion": "2023-05-01",
+            "apiVersion": "2025-01-01",
             "name": "[concat(variables('storageAccountName'), '/default')]",
             "dependsOn": [
                 "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
@@ -250,7 +250,7 @@
         },
         {
             "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
-            "apiVersion": "2023-05-01",
+            "apiVersion": "2025-01-01",
             "name": "[concat(variables('storageAccountName'), '/default/', variables('tableName'))]",
             "dependsOn": [
                 "[resourceId('Microsoft.Storage/storageAccounts/tableServices', variables('storageAccountName'), 'default')]"
@@ -261,7 +261,7 @@
             "dependsOn": ["[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "condition": "[variables('enableDce')]",
             "type": "Microsoft.Insights/dataCollectionEndpoints",
-            "apiVersion": "2023-03-11",
+            "apiVersion": "2024-03-11",
             "name": "[variables('FeedsDceName')]",
             "location": "[parameters('WorkspaceLocation')]",
             "properties": {
@@ -274,7 +274,7 @@
         {
             "condition": "[parameters('EnableFeedsTable')]",
             "type": "Microsoft.OperationalInsights/workspaces/tables",
-            "apiVersion": "2022-10-01",
+            "apiVersion": "2025-02-01",
             "name": "[concat(parameters('WorkspaceName'), '/', variables('FeedsTableName'))]",
             "dependsOn": [
                 "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
@@ -301,7 +301,7 @@
         {
             "condition": "[parameters('EnableFeedsTable')]",
             "type": "Microsoft.Insights/dataCollectionRules",
-            "apiVersion": "2023-03-11",
+            "apiVersion": "2024-03-11",
             "name": "[variables('FeedsDcrName')]",
             "location": "[parameters('WorkspaceLocation')]",
             "dependsOn": [
@@ -347,7 +347,7 @@
         {
             "condition": "[parameters('EnableAuditLogging')]",
             "type": "Microsoft.OperationalInsights/workspaces/tables",
-            "apiVersion": "2022-10-01",
+            "apiVersion": "2025-02-01",
             "name": "[concat(parameters('WorkspaceName'), '/', variables('AuditTableName'))]",
             "dependsOn": [
                 "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('WorkspaceName'))]",
@@ -376,7 +376,7 @@
         {
             "condition": "[parameters('EnableAuditLogging')]",
             "type": "Microsoft.Insights/dataCollectionRules",
-            "apiVersion": "2023-03-11",
+            "apiVersion": "2024-03-11",
             "name": "[variables('AuditDcrName')]",
             "location": "[parameters('WorkspaceLocation')]",
             "dependsOn": [
@@ -424,14 +424,14 @@
         {
             "dependsOn": ["[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
-            "apiVersion": "2023-01-31",
+            "apiVersion": "2024-11-30",
             "name": "[variables('managedIdentityName')]",
             "location": "[parameters('location')]"
         },
         {
             "dependsOn": ["[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "type": "Microsoft.Web/serverfarms",
-            "apiVersion": "2023-12-01",
+            "apiVersion": "2025-03-01",
             "name": "[variables('hostingPlanName')]",
             "location": "[parameters('location')]",
             "sku": {
@@ -461,7 +461,7 @@
         },
         {
             "type": "Microsoft.Web/sites",
-            "apiVersion": "2023-12-01",
+            "apiVersion": "2025-03-01",
             "name": "[variables('functionAppName')]",
             "location": "[parameters('location')]",
             "kind": "functionapp,linux",
@@ -493,11 +493,11 @@
                     "appSettings": [
                         {
                             "name": "AzureWebJobsStorage",
-                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value, ';EndpointSuffix=', environment().suffixes.storage)]"
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2025-01-01').keys[0].value, ';EndpointSuffix=', environment().suffixes.storage)]"
                         },
                         {
                             "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
-                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value, ';EndpointSuffix=', environment().suffixes.storage)]"
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2025-01-01').keys[0].value, ';EndpointSuffix=', environment().suffixes.storage)]"
                         },
                         {
                             "name": "WEBSITE_CONTENTSHARE",
@@ -525,7 +525,7 @@
                         },
                         {
                             "name": "AZURE_CLIENT_ID",
-                            "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').clientId]"
+                            "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2024-11-30').clientId]"
                         },
                         {
                             "name": "POLLING_SCHEDULE",
@@ -541,7 +541,7 @@
                         },
                         {
                             "name": "WORKSPACE_ID",
-                            "value": "[reference(variables('workspaceResourceId'), '2023-09-01').customerId]"
+                            "value": "[reference(variables('workspaceResourceId'), '2025-02-01').customerId]"
                         },
                                                                                                 {
                             "name": "STORAGE_ACCOUNT_NAME",
@@ -565,11 +565,11 @@
                         },
                         {
                             "name": "FEEDS_DCR_ENDPOINT",
-                            "value": "[if(parameters('EnableFeedsTable'), reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName')), '2023-03-11').logsIngestion.endpoint, '')]"
+                            "value": "[if(parameters('EnableFeedsTable'), reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName')), '2024-03-11').logsIngestion.endpoint, '')]"
                         },
                         {
                             "name": "FEEDS_DCR_IMMUTABLE_ID",
-                            "value": "[if(parameters('EnableFeedsTable'), reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName')), '2023-03-11').immutableId, '')]"
+                            "value": "[if(parameters('EnableFeedsTable'), reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('FeedsDcrName')), '2024-03-11').immutableId, '')]"
                         },
                         {
                             "name": "FEEDS_STREAM_NAME",
@@ -577,11 +577,11 @@
                         },
                         {
                             "name": "AUDIT_DCR_ENDPOINT",
-                            "value": "[if(parameters('EnableAuditLogging'), reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName')), '2023-03-11').logsIngestion.endpoint, '')]"
+                            "value": "[if(parameters('EnableAuditLogging'), reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('FeedsDceName')), '2024-03-11').logsIngestion.endpoint, '')]"
                         },
                         {
                             "name": "AUDIT_DCR_IMMUTABLE_ID",
-                            "value": "[if(parameters('EnableAuditLogging'), reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName')), '2023-03-11').immutableId, '')]"
+                            "value": "[if(parameters('EnableAuditLogging'), reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('AuditDcrName')), '2024-03-11').immutableId, '')]"
                         },
                         {
                             "name": "AUDIT_STREAM_NAME",
@@ -603,7 +603,7 @@
                 "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('SentinelContributorRoleId'))]",
-                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2024-11-30').principalId]",
                 "principalType": "ServicePrincipal"
             }
         },
@@ -619,7 +619,7 @@
                 "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('StorageTableDataContributorRoleId'))]",
-                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2024-11-30').principalId]",
                 "principalType": "ServicePrincipal"
             }
         },
@@ -636,7 +636,7 @@
                 "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
-                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2024-11-30').principalId]",
                 "principalType": "ServicePrincipal"
             }
         },
@@ -653,7 +653,7 @@
                 "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('MonitoringMetricsPublisherRoleId'))]",
-                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2024-11-30').principalId]",
                 "principalType": "ServicePrincipal"
             }
         },
@@ -1094,7 +1094,7 @@
         {
             "condition": "[and(parameters('EnableWorkbook'), parameters('EnableFeedsTable'))]",
             "type": "Microsoft.Insights/workbooks",
-            "apiVersion": "2022-04-01",
+            "apiVersion": "2023-06-01",
             "name": "[guid(resourceGroup().id, 'SOCRadar-Feeds-Workbook')]",
             "location": "[parameters('WorkspaceLocation')]",
             "kind": "shared",
@@ -1122,13 +1122,13 @@
                 "[resourceId('Microsoft.Resources/deployments', 'precheck-workspace-exists')]"],
             "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('WebsiteContributorRoleId'))]",
-                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2024-11-30').principalId]",
                 "principalType": "ServicePrincipal"
             }
         },
         {
             "type": "Microsoft.Resources/deploymentScripts",
-            "apiVersion": "2020-10-01",
+            "apiVersion": "2023-08-01",
             "name": "triggerFirstRun",
             "location": "[parameters('location')]",
             "kind": "AzureCLI",

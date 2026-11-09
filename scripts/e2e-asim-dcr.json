@@ -20,7 +20,7 @@
   "resources": [
     {
       "type": "Microsoft.Insights/dataCollectionEndpoints",
-      "apiVersion": "2023-03-11",
+      "apiVersion": "2024-03-11",
       "name": "[variables('dceName')]",
       "location": "[parameters('Location')]",
       "properties": {
@@ -31,7 +31,7 @@
     },
     {
       "type": "Microsoft.Insights/dataCollectionRules",
-      "apiVersion": "2023-03-11",
+      "apiVersion": "2024-03-11",
       "name": "[variables('dcrName')]",
       "location": "[parameters('Location')]",
       "dependsOn": [
