@@ -101,6 +101,34 @@ elif line.startswith("monitor log-analytics"):
         print("30\nPerGB2018\n2026-01-01T00:00:00Z" if sc == "wsdrift" and n >= 2 else "90\nPerGB2018\n2026-01-01T00:00:00Z")
 '''
 
+# The copied shell script's F probe is a Python heredoc (`python3 - ...`), so
+# the old argv-only shim did not catch its `time.sleep`.  Its three-second
+# fake-test deadline therefore depended on host scheduling even though every
+# Azure response below is fake.  Run that heredoc with a private virtual clock;
+# ordinary Python invocations still use the interpreter running this test.
+FAKE_PYTHON = r'''
+import os, sys, time
+real = os.environ["FAKE_REAL_PYTHON"]
+args = sys.argv[1:]
+if len(args) >= 2 and args[0] == "-c" and "time.sleep" in args[1]:
+    sys.exit(0)
+if args and args[0] == "-":
+    code = sys.stdin.read()
+    now = [0]
+    time.time = lambda: now[0]
+    time.sleep = lambda seconds: now.__setitem__(0, now[0] + seconds)
+    sys.argv = ["-"] + args[1:]
+    scope = {"__name__": "__main__", "__file__": "<fake-deploy-paths-heredoc>"}
+    exec(compile(code, "<fake-deploy-paths-heredoc>", "exec"), scope)
+    # exec() returns after the heredoc prints RESULT.  Do not re-exec the real
+    # interpreter: that would discard its buffered pipe output.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    sys.exit(0)
+sys.argv = [real] + args
+os.execv(real, sys.argv)
+'''
+
 
 def row(out, name):
     """Status of one result line: the name, then PASS, FAIL or CANNOT."""
@@ -120,17 +148,19 @@ def play(scenario, flags=(), env_drop=()):
         open(os.path.join(tmp, "azuredeploy.json"), "w").write("{}")
         open(os.path.join(tmp, "fake.py"), "w").write(FAKE)
         real_py = sys.executable
+        fake_python = os.path.join(tmp, "fake_python.py")
+        open(fake_python, "w").write(FAKE_PYTHON)
         shims = {"az": 'exec "%s" "%s" "$@"' % (real_py, os.path.join(tmp, "fake.py")),
                  "curl": "echo 200", "sleep": "exit 0",
-                 # the script sleeps through python3 -c; everything else runs for real
-                 "python3": 'case "$*" in *time.sleep*) exit 0;; esac\nexec "%s" "$@"' % real_py}
+                 "python3": 'exec "%s" "%s" "$@"' % (real_py, fake_python)}
         for name, body in shims.items():
             path = os.path.join(bin_dir, name)
             open(path, "w").write("#!/bin/sh\n" + body + "\n")
             os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
         rec, calls = os.path.join(tmp, "rec.json"), os.path.join(tmp, "calls.txt")
         env = dict(os.environ, PATH=bin_dir + os.pathsep + os.environ["PATH"], FAKE_REC=rec, FAKE_CALLS=calls,
-                   FAKE_SCENARIO=scenario, FAKE_KEY=KEY, TEST_SUBSCRIPTION_ID="sub-1", TEST_SOCRADAR_API_KEY=KEY,
+                   FAKE_SCENARIO=scenario, FAKE_KEY=KEY, FAKE_REAL_PYTHON=real_py,
+                   TEST_SUBSCRIPTION_ID="sub-1", TEST_SOCRADAR_API_KEY=KEY,
                    TEST_FIRST_RUN_WAIT="3", TEST_POLL="1")
         for k in env_drop:
             env.pop(k, None)

@@ -69,19 +69,31 @@ def dcr_for(stream_expression):
     return matches[0] if len(matches) == 1 else None
 
 
-def columns(table_name_variable, dcr):
-    table = next((r for r in resources("Microsoft.OperationalInsights/workspaces/tables")
-                  if table_name_variable in r.get("name", "")), None)
-    check(table is not None, "table resource for %s is missing" % table_name_variable)
-    table_columns = set()
-    if table:
-        table_columns = {c.get("name") for c in table["properties"]["schema"]["columns"]}
+def column_contract(columns, owner):
+    fields = [(column.get("name"), column.get("type")) for column in columns]
+    names = [name for name, _ in fields]
+    check(all(isinstance(name, str) and name for name in names), "%s has an empty column name" % owner)
+    check(len(names) == len(set(names)), "%s repeats a column name" % owner)
+    check(all(isinstance(field_type, str) and field_type for _, field_type in fields), "%s has an empty column type" % owner)
+    return fields
 
-    dcr_columns = set()
+
+def columns(table_name_variable, stream_expression, dcr):
+    table_expression = "variables('%s')" % table_name_variable
+    matching_tables = [r for r in resources("Microsoft.OperationalInsights/workspaces/tables")
+                       if table_expression in r.get("name", "")]
+    check(len(matching_tables) == 1, "table resource for %s must exist exactly once" % table_name_variable)
+    table_columns = []
+    if len(matching_tables) == 1:
+        table_columns = column_contract(
+            matching_tables[0].get("properties", {}).get("schema", {}).get("columns", []),
+            "%s table" % table_name_variable,
+        )
+
+    dcr_columns = []
     if dcr:
-        declarations = dcr["properties"]["streamDeclarations"]
-        stream = next(iter(declarations.values()), {})
-        dcr_columns = {c.get("name") for c in stream.get("columns", [])}
+        declaration = dcr.get("properties", {}).get("streamDeclarations", {}).get(stream_expression, {})
+        dcr_columns = column_contract(declaration.get("columns", []), "%s stream declaration" % table_name_variable)
     return table_columns, dcr_columns
 
 
@@ -90,12 +102,16 @@ def check_stream(setting_name, table_name_variable):
     expression = settings.get(setting_name)
     variable = arm_variable(expression)
     if not variable:
-        return set(), set()
+        return [], []
     variable_name, stream_name = variable
     check(stream_name.startswith("Custom-"), "%s resolves to a non-custom stream %r" % (setting_name, stream_name))
+    if setting_name == "FEEDS_STREAM_NAME":
+        feeds_table_name = TEMPLATE.get("variables", {}).get("FeedsTableName")
+        check(feeds_table_name == "SOCRadar_Feeds_CL", "FeedsTableName must equal 'SOCRadar_Feeds_CL', got %r" % feeds_table_name)
+        check(stream_name == "Custom-" + str(feeds_table_name), "FeedsStreamName must equal 'Custom-' + FeedsTableName, got %r" % stream_name)
     dcr = dcr_for(expression)
     if not dcr:
-        return set(), set()
+        return [], []
     declarations = dcr["properties"]["streamDeclarations"]
     check(set(declarations) == {expression}, "%s DCR has stray or missing stream declarations" % setting_name)
     flows = dcr["properties"].get("dataFlows", [])
@@ -104,8 +120,12 @@ def check_stream(setting_name, table_name_variable):
         flow = flows[0]
         check(flow.get("streams") == [expression], "%s data flow input stream differs" % setting_name)
         check(flow.get("outputStream") == expression, "%s data flow output stream differs" % setting_name)
+        if setting_name == "FEEDS_STREAM_NAME":
+            transform = flow.get("transformKql")
+            check(isinstance(transform, str) and transform.strip() == "source",
+                  "Feeds data flow transformKql must be identity 'source', got %r" % transform)
     check(variable_name.endswith("StreamName"), "%s does not resolve through a StreamName variable" % setting_name)
-    return columns(table_name_variable, dcr)
+    return columns(table_name_variable, expression, dcr)
 
 
 feeds_table, feeds_dcr = check_stream("FEEDS_STREAM_NAME", "FeedsTableName")
@@ -117,10 +137,10 @@ sample_log = StixBuilder.build_feed_log(
 )
 expected_feeds = set(sample_log)
 check(len(expected_feeds) == 7, "build_feed_log must emit exactly seven fields, got %r" % sorted(expected_feeds))
-check(expected_feeds == feeds_table, "build_feed_log fields differ from SOCRadar_Feeds_CL: %r" % sorted(expected_feeds ^ feeds_table))
-check(expected_feeds == feeds_dcr, "build_feed_log fields differ from Feeds DCR: %r" % sorted(expected_feeds ^ feeds_dcr))
-check(feeds_table == feeds_dcr and bool(feeds_table), "Feeds table/DCR columns must be nonempty and exactly equal")
-check(audit_table == audit_dcr and bool(audit_table), "Audit table/DCR columns must be nonempty and exactly equal")
+check(expected_feeds == {name for name, _ in feeds_table}, "build_feed_log fields differ from SOCRadar_Feeds_CL: %r" % sorted(expected_feeds ^ {name for name, _ in feeds_table}))
+check(expected_feeds == {name for name, _ in feeds_dcr}, "build_feed_log fields differ from Feeds DCR: %r" % sorted(expected_feeds ^ {name for name, _ in feeds_dcr}))
+check(feeds_table == feeds_dcr and bool(feeds_table), "Feeds table/DCR name and type columns must be nonempty and exactly equal")
+check(audit_table == audit_dcr and bool(audit_table), "Audit table/DCR name and type columns must be nonempty and exactly equal")
 
 # This proves the runtime uses the exact two environment keys, rather than a
 # fallback setting that happens to share the same literal stream name.

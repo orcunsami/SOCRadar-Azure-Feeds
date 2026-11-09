@@ -36,6 +36,7 @@ az deployment group create \
 |-----------|----------|---------|-------------|
 | `WorkspaceName` | Yes | - | Microsoft Sentinel workspace name |
 | `DeployNewWorkspace` | No | `false` | `false` uses the workspace that already exists: the workspace itself is not updated, so its pricing tier, retention and daily cap are never changed, and a name that does not exist fails before anything is created. Set `true` only to create a new workspace named `WorkspaceName`; do not set it on an existing workspace that uses a commitment tier. |
+| `location` | No | `[resourceGroup().location]` | Region for the Function App and supporting resources; independent of the workspace region. |
 | `WorkspaceLocation` | No | RG location | Region of the workspace |
 | `SocradarApiKey` | Yes | - | SOCRadar Platform API key. The deployment asks the feed API once and fails with "SOCRadar rejected the API key (HTTP 401)" if the key is wrong. |
 | `CustomCollectionIds` | No | APT Block Hash | Comma-separated collection UUIDs. The default is the APT Recommended Block Hash feed (~500 indicators). Put other IDs here to enable the other recommended collections (see below). At least one collection must be set, or every run is recorded as `Failed`. |
@@ -48,6 +49,7 @@ az deployment group create \
 | `EnableWorkbook` | No | true | Deploy the dashboard (needs `EnableFeedsTable`) |
 | `EnableThreatHuntRules` | No | true | Create the five threat hunting analytics rules (see below) |
 | `ThreatHuntRuleSeverity` | No | Medium | Severity of the alerts those rules raise: Informational, Low, Medium or High |
+| `_packagePushTimestamp` | No | `[utcNow()]` (automatic) | Internal package-staging refresh timestamp. Leave unset so a redeploy stages the package again. |
 
 ## Recommended collections
 

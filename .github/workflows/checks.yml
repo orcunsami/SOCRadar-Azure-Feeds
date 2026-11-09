@@ -32,6 +32,9 @@ jobs:
       - name: Template and package checks
         run: python3 tests/run_all.py
 
+      - name: ARM stream contract mutations
+        run: python3 tests/mutate_arm_stream_contract.py
+
       - name: No secrets in tracked files
         run: |
           set -e
