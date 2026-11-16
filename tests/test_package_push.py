@@ -162,12 +162,17 @@ for script in scripts:
           "plus a cold index on a consumption plan (90s wait + 34x15s = the 10 minutes the "
           "failure message promises) - a working install would be reported Failed")
     # The first import runs on the host start. The script has to see the start, not
-    # assume it: the timer listener's lock blob is rewritten when the listener starts
-    # (Feeds run, 16 Nov: lastModified 02:15:53 = first log line 02:15:53), and a
-    # sleeping consumption host is woken with an HTTP request.
-    check("socradar_feeds_import.Listener" in body and "azure-webjobs-hosts" in body,
-          "azuredeploy.json: the script does not read the timer listener lock - it cannot "
-          "tell that the first import started")
+    # assume it. Two blobs prove it: the timer listener's lock is rewritten when the
+    # listener starts (Feeds run, 16 Nov: lastModified 02:15:53 = first log line
+    # 02:15:53), but only on the first install - a redeploy reuses the blob (06:10
+    # start, lock still 05:31:11, the script failed a deployment whose import had run).
+    # The timer status blob is rewritten after every invocation, redeploys included.
+    # A sleeping consumption host is woken with an HTTP request.
+    check("azure-webjobs-hosts" in body
+          and "contains(name,'socradar_feeds_import')" in body
+          and "--prefix locks/" not in body,
+          "azuredeploy.json: the freshness check reads only the listener lock - a redeploy "
+          "reuses that blob, so a first import that ran would be reported Failed")
     check("TS=$(date -u +%s)" in body and 'indexed && break; sleep 15' in body
           and body.index("TS=$(date -u +%s)") < body.index("appsettings set"),
           "azuredeploy.json: the reference time is taken after the pointer is written - a "
