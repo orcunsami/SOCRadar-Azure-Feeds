@@ -176,7 +176,7 @@ Microsoft Sentinel in the Azure portal is supported until 31 March 2027; after t
 | What | Defender portal |
 |---|---|
 | Indicators and feed tables in KQL | Investigation & response > Hunting > Advanced hunting: `ThreatIntelIndicators`, `SOCRadar_Feeds_CL`, `SOCRadar_Feeds_Audit_CL` (reads secondary workspaces too) |
-| Indicators in the TI page | Threat intelligence > Intel management (in tenants with the consolidated Threat Intelligence Explorer: Threat intelligence > Intel explorer > Indicators; shows the primary workspace) |
+| Indicators in the TI page | Threat intelligence > Intel explorer (shows the primary workspace) |
 | Dashboard | Microsoft Sentinel > Threat management > Workbooks. The Workbooks page in the Defender portal shows data from the primary workspace only; if this workspace is secondary, query the tables with Advanced hunting instead. |
 
 The Function App, its log stream and Application Insights stay in the Azure portal.
