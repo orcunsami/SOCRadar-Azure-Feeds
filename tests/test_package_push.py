@@ -124,24 +124,68 @@ for script in scripts:
     # Measured on a TAXII run: the pointer was written at 18:37:17, no restart
     # followed, the function was still absent when the 4 minute poll expired at
     # 18:42 -- and it appeared one minute after an explicit restart at 18:44:39.
-    # So the script restarts the app itself, and the timeout has to cover the
-    # restart plus a cold index on top of the settings-read window and the
-    # upload attempts.
+    # So writing the pointer is not guaranteed to reload the package and the
+    # script has to be able to restart the app itself. The opposite was measured
+    # too (16 Nov 2026): the platform often restarts the host on its own the
+    # moment the pointer changes and the first import starts at once; an
+    # unconditional restart eleven seconds later killed that run. So: wait, and
+    # restart only when nothing was indexed. The timeout has to cover the wait,
+    # the restart plus a cold index, the settings-read window and the uploads.
     timeout = props.get("timeout") or ""
     minutes = re.match(r"^PT(\d+)M$", timeout)
     check(minutes is not None and int(minutes.group(1)) >= 30,
           "azuredeploy.json: deploymentScript timeout is %r - the settings-read window, "
-          "the six upload attempts and the 10 minute index poll need at least PT30M" % (timeout,))
-    check("for i in $(seq 1 40)" in body,
-          "azuredeploy.json: the index poll is shorter than a restart plus a cold index "
-          "on a consumption plan - a working install would be reported Failed")
-    check("functionapp restart" in body,
-          "azuredeploy.json: the script writes the package pointer and waits. Writing it "
-          "did not make the host reload the package on a measured TAXII run; the function "
-          "appeared only after an explicit restart")
+          "the six upload attempts, the index poll and the wake-up wait need at least PT30M" % (timeout,))
+    check(body.count("functionapp restart") == 1,
+          "azuredeploy.json: the script has %d restart calls, it must have exactly one: "
+          "the guarded one. Writing the pointer did not make the host reload the package "
+          "on a measured TAXII run, so the guarded restart cannot go" % body.count("functionapp restart"))
     check(body.index("staged || {") < body.index("functionapp restart"),
           "azuredeploy.json: the restart is asked for before the package is known to be "
           "staged, so it would reload the old package")
+    # The wait comes first, the restart sits in the else branch of the indexed check.
+    wait = 'for i in $(seq 1 6); do indexed && break; sleep 15; done; if indexed; then'
+    check(wait in body,
+          "azuredeploy.json: the script does not give the platform 90s to reload the "
+          "package by itself before it restarts the app")
+    if wait in body:
+        i_if = body.index(wait)
+        i_else = body.index("else", i_if)
+        i_restart = body.index("functionapp restart")
+        i_fi = body.index("; fi;", i_restart)
+        check(i_if < i_else < i_restart < i_fi,
+              "azuredeploy.json: the restart is not confined to the 'nothing indexed after "
+              "the wait' branch - an unconditional restart kills the first import the "
+              "platform already started (TAXII, measured)")
+    check("for i in $(seq 1 34); do sleep 15; indexed && break; done" in body,
+          "azuredeploy.json: the index poll after the restart is shorter than a restart "
+          "plus a cold index on a consumption plan (90s wait + 34x15s = the 10 minutes the "
+          "failure message promises) - a working install would be reported Failed")
+    # The first import runs on the host start. The script has to see the start, not
+    # assume it: the timer listener's lock blob is rewritten when the listener starts
+    # (Feeds run, 16 Nov: lastModified 02:15:53 = first log line 02:15:53), and a
+    # sleeping consumption host is woken with an HTTP request.
+    check("socradar_feeds_import.Listener" in body and "azure-webjobs-hosts" in body,
+          "azuredeploy.json: the script does not read the timer listener lock - it cannot "
+          "tell that the first import started")
+    check("TS=$(date -u +%s)" in body and 'indexed && break; sleep 15' in body
+          and body.index("TS=$(date -u +%s)") < body.index("appsettings set"),
+          "azuredeploy.json: the reference time is taken after the pointer is written - a "
+          "start that the platform triggers by itself would look old")
+    check('-ge "$TS"' in body,
+          "azuredeploy.json: the listener start is not compared with the reference time - "
+          "a start from before this deployment would count as the first run")
+    check("defaultHostName" in body and 'curl -s -o /dev/null -m 30 "https://$HOST/"' in body,
+          "azuredeploy.json: the script does not wake a sleeping host - the first import "
+          "waited ~18 minutes for a request on a redeploy (measured)")
+    check('fresh && { echo' in body,
+          "azuredeploy.json: success does not depend on the listener check (fresh) - the "
+          "script would report the first run started without having looked")
+    check(body.index("functionapp restart") < body.index("fresh()")
+          and body.rstrip().endswith("exit 1")
+          and "the first import is running\"; exit 0" in body,
+          "azuredeploy.json: success is not tied to the listener start, or something runs "
+          "after it that could cut the import")
     # OnSuccess on its own is a one-hour promise: on failure the service waits for
     # retentionInterval and then deletes the container, the storage and the script
     # resource together. Measured on run 3c6f: endTime 18:42:05, expirationTime

@@ -103,8 +103,12 @@ If the deployment fails at `triggerFirstRun`, the message says which step: an un
 package URL, a download that is not a readable zip, a package that never reached the container
 the app reloads from, or an app that indexed no function within the poll window. The script
 retries the settings read until its role assignment is effective, retries the upload up to
-six times, and restarts the app once the package is staged -- writing the pointer alone was
-measured not to make the host reload it. If the deployment fails, the diagnostic container
+six times, and once the package is staged waits 90 seconds for the platform to reload it by
+itself. It restarts the app only if no function was indexed by then -- writing the pointer
+alone was measured not to always make the host reload it, while a restart right after a
+reload the platform started on its own would cut the first import short. Last it waits until
+the timer listener of the import function has started (the first import runs on that start),
+waking a sleeping host with an HTTP request. If the deployment fails, the diagnostic container
 and its storage account stay in the resource group for 26 hours -- the documented ceiling --
 so the log can still be read the next morning; delete them once you are done. A successful
 deployment leaves neither behind.
@@ -140,7 +144,7 @@ register that provider if you want the smart-detection alert.
 - **DCE + DCR + Custom Tables** (optional) - SOCRadar_Feeds_CL and SOCRadar_Feeds_Audit_CL
 - **Workbook** (optional) - SOCRadar Threat Feeds Dashboard
 - **Analytics rules** (optional) - five threat hunting rules, `EnableThreatHuntRules`
-- **Deployment Script** - Downloads the package, stages it in the storage account, restarts the app and waits until a function is indexed (see above)
+- **Deployment Script** - Downloads the package, stages it in the storage account, waits until a function is indexed (restarting the app only if the platform did not reload it) and until the import function's timer listener has started (see above)
 
 ## How a run works
 
@@ -154,7 +158,7 @@ register that provider if you want the smart-detection alert.
 8. The dashboard tiles use `dcount`, which is approximate. On a live run of 3882 indicators it showed 3878 for the total (about 0.1% off) and 1903 / 1896 for two collections whose exact counts were 1888 / 1915 (about 1% off), so the tiles can differ slightly from the Microsoft Sentinel TI count. The exact count is `SOCRadar_Feeds_CL | distinct IndicatorValue | count`, or per collection `SOCRadar_Feeds_CL | distinct CollectionName, IndicatorValue | summarize count() by CollectionName`. The 4 missing in the total are not explained: an exact distinct count was not measured, and a value that appears in two collections would also lower it.
 9. A collection that finished cleanly less than 15 minutes ago is not fetched again. Every host start runs an import, and a new deployment starts the host three times: when the package is staged, on the restart that follows, and about 5 to 8 minutes later when Azure creates its own smart-detection rule (measured 30 Oct 2026). The skipped runs are recorded as `Success` with 0 indicators. A run that lost indicators never counts as recent. This is why the polling interval starts at 30 minutes: a shorter one would have its scheduled runs skipped.
 
-Microsoft Sentinel does not deduplicate rows by `Id`, and it reingests indicators every 7–10 days, so raw row counts grow. Measured 16 Nov 2026: a run that sent each indicator once landed 624 rows for 602 indicators and 652 rows for 590 (the extra rows carry the same timestamp and arrive up to 8 minutes after the rest), and rows can appear about 11 minutes after the upload, so a count taken right after a run can be low. Count by `Id`, as in point 4.
+The `ThreatIntelIndicators` table is append-only: a re-sent indicator adds a row with the same `Id`, and Microsoft Sentinel also reingests indicators every 7-10 days, so raw row counts grow. The Threat intelligence page is different: Microsoft Learn says it deduplicates indicators by `Id` and shows the one with the newest `TimeGenerated`. In queries you do that yourself with `arg_max`, as in point 4. Measured 16 Nov 2026: a run that sent each indicator once landed 624 rows for 602 indicators and 652 rows for 590 (the extra rows carry the same timestamp as the rest). Across 15,953 rows the ingestion delay (`ingestion_time()` minus `TimeGenerated`) was 106 seconds at the median, 224 seconds at the 95th percentile and 595 seconds (about 10 minutes) at most, so a count taken right after a run can be low.
 
 Indicators with an unsupported type or hash length are counted and skipped, not sent as a guessed type.
 
@@ -203,7 +207,7 @@ Five scheduled analytics rules compare your own logs with the indicators this ap
 
 ## Post-Deployment
 
-The deployment script verifies that the package URL answers and that the function was indexed, then restarts the app so the first import runs. Custom tables receive their first rows 10-15 minutes after the first run; that delay is normal for a newly created table.
+The deployment script verifies that the package URL answers, that the function was indexed and that its timer listener started, which is when the first import runs. Custom tables receive their first rows 10-15 minutes after the first run; that delay is normal for a newly created table.
 
 ### Audit table
 
